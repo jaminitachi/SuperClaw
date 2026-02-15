@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 export const GatewayConfigSchema = z.object({
   url: z.string().default('ws://127.0.0.1:18789'),
-  token: z.string(),
+  host: z.string().default('127.0.0.1'),
+  port: z.number().default(18789),
+  token: z.string().optional().default(''),
+  reconnect: z.boolean().default(true),
 });
 
 export const TelegramConfigSchema = z.object({
