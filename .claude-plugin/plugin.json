@@ -18,8 +18,5 @@
     "persistent-memory"
   ],
   "skills": "./skills/",
-  "commands": "./commands/",
-  "agents": "./agents/",
-  "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "mcpServers": "./.mcp.json"
 }
