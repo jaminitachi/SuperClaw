@@ -63,14 +63,46 @@ server.tool(
 
 // --- Telegram/Messaging Tools ---
 
+/**
+ * Send Telegram message directly via Bot API (no OpenClaw dependency).
+ */
+async function sendTelegramDirect(text: string): Promise<{ ok: boolean; message_id?: number; error?: string }> {
+  const botToken = config.telegram?.botToken;
+  const chatId = config.telegram?.defaultChatId;
+  if (!botToken || !chatId) {
+    return { ok: false, error: 'Telegram not configured in superclaw.json (missing botToken or defaultChatId)' };
+  }
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
+  const data = await res.json() as { ok: boolean; result?: { message_id: number }; description?: string };
+  if (data.ok) {
+    return { ok: true, message_id: data.result?.message_id };
+  }
+  return { ok: false, error: data.description ?? 'Unknown Telegram error' };
+}
+
 server.tool(
   'sc_send_message',
-  'Send a message to a channel (telegram, discord, etc.) via the OpenClaw gateway',
+  'Send a message to Telegram (direct) or other channels via OpenClaw gateway',
   {
     channel: z.string().default('telegram').describe('Target channel (telegram, discord)'),
     text: z.string().describe('Message text to send'),
   },
   async ({ channel, text }) => {
+    // Telegram: send directly via Bot API (no OpenClaw needed)
+    if (channel === 'telegram') {
+      const result = await sendTelegramDirect(text);
+      if (result.ok) {
+        return { content: [{ type: 'text', text: `Telegram sent (message_id: ${result.message_id})` }] };
+      }
+      return { content: [{ type: 'text', text: `Telegram failed: ${result.error}` }], isError: true };
+    }
+
+    // Other channels: route through OpenClaw gateway
     await ensureConnected();
     try {
       const result = await gateway.sendMessage(channel, text);
