@@ -72,15 +72,16 @@ async function main() {
   const configPath = join(scRoot, 'superclaw.json');
   const dbPath = join(scRoot, 'data', 'memory.db');
 
-  // First-run detection: if no config file, prompt user for setup
+  // First-run detection: if no config file, user hasn't run `npm run setup`
   if (!existsSync(configPath)) {
     const lines = [
-      '[SuperClaw] First run detected — no superclaw.json found.',
+      '[SuperClaw] No configuration found.',
       '',
-      'IMPORTANT: SuperClaw needs initial setup. Tell the user:',
-      '"SuperClaw is not configured yet. Say **setup** to run the configuration wizard (Telegram, gateway, memory, etc.)."',
-      '',
-      'The setup wizard will configure: OpenClaw gateway connection, Telegram bot, heartbeat, memory DB, and all MCP servers.',
+      'Tell the user: "SuperClaw is not set up yet. Run this in your terminal first:"',
+      '```',
+      'cd ~/superclaw && npm run setup',
+      '```',
+      'This installs all prerequisites, configures Telegram, and builds the MCP servers.',
     ];
     console.log(JSON.stringify({
       continue: true,
@@ -92,7 +93,17 @@ async function main() {
     return;
   }
 
+  // Check if Telegram is configured (optional but useful to mention)
+  let telegramHint = '';
+  try {
+    const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
+    if (!cfg.telegram?.enabled || !cfg.telegram?.botToken) {
+      telegramHint = 'Telegram is not configured. To add it, run `npm run setup` again or edit superclaw.json.';
+    }
+  } catch {}
+
   const lines = ['[SuperClaw] Persistent memory system active.'];
+  if (telegramHint) lines.push(telegramHint);
 
   if (existsSync(dbPath)) {
     lines.push('Memory DB found — use sc_memory_search/sc_memory_recall to access past knowledge.');

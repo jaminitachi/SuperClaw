@@ -11,6 +11,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'f
 import { join, dirname } from 'path';
 import { homedir, platform } from 'os';
 import { fileURLToPath } from 'url';
+import { createInterface } from 'readline';
 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -43,8 +44,10 @@ function hasBrew() {
   return hasCommand('brew');
 }
 
-// Reserved for future interactive prompts
-// async function ask(question) { ... }
+const rl = createInterface({ input: process.stdin, output: process.stdout });
+function ask(question) {
+  return new Promise((resolve) => rl.question(`  ${question} `, resolve));
+}
 
 // ─── Steps ───────────────────────────────────────────────────
 async function checkPlatform() {
@@ -261,6 +264,42 @@ async function createConfig() {
   // Detect Peekaboo path
   const peekabooPath = run('which peekaboo') ?? '/opt/homebrew/bin/peekaboo';
 
+  // ─── Interactive Telegram setup ─────────────────────────
+  let telegramEnabled = false;
+  let telegramBotToken = '';
+  let telegramChatId = '';
+
+  if (!SKIP_OPTIONAL) {
+    log('');
+    log('Telegram lets you remote-control Claude from your phone.');
+    const wantTelegram = (await ask('Set up Telegram? (y/n):')).trim().toLowerCase();
+
+    if (wantTelegram === 'y' || wantTelegram === 'yes') {
+      log('');
+      log('To get a bot token:');
+      log('  1. Open Telegram → search @BotFather');
+      log('  2. Send /newbot and follow prompts');
+      log('  3. Copy the token (looks like 123456789:ABCdef...)');
+      log('');
+      telegramBotToken = (await ask('Bot token (or Enter to skip):')).trim();
+
+      if (telegramBotToken) {
+        log('');
+        log('To get your chat ID:');
+        log('  1. Open Telegram → search @userinfobot');
+        log('  2. Send /start — it replies with your ID');
+        log('');
+        telegramChatId = (await ask('Your chat ID:')).trim();
+        telegramEnabled = !!(telegramBotToken && telegramChatId);
+        if (telegramEnabled) {
+          ok(`Telegram configured (chat ${telegramChatId})`);
+        }
+      } else {
+        log('Skipping Telegram for now. Edit superclaw.json later to add it.');
+      }
+    }
+  }
+
   const config = {
     "$schema": "./superclaw.schema.json",
     gateway: {
@@ -270,9 +309,10 @@ async function createConfig() {
       reconnect: true,
     },
     telegram: {
-      enabled: false,
-      allowFrom: [],
-      defaultChatId: '',
+      enabled: telegramEnabled,
+      botToken: telegramBotToken,
+      allowFrom: telegramChatId ? [telegramChatId] : [],
+      defaultChatId: telegramChatId,
     },
     heartbeat: {
       enabled: true,
@@ -296,8 +336,7 @@ async function createConfig() {
 
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
   chmodSync(CONFIG_PATH, 0o600);
-  ok('Default config created at superclaw.json');
-  log('Edit superclaw.json to configure Telegram, heartbeat collectors, etc.');
+  ok('Config saved to superclaw.json');
   return true;
 }
 
@@ -369,15 +408,24 @@ async function main() {
 
   const allOk = Object.values(results).every(Boolean);
 
+  rl.close();
+
   if (allOk) {
     console.log(`
 \x1b[32m  All components installed successfully!\x1b[0m
 
-  Next steps:
-    1. Restart Claude Code to activate SuperClaw
-    2. Try: "take a screenshot" (Mac automation)
-    3. Try: "search memory for..." (persistent memory)
-    4. Edit superclaw.json to enable Telegram
+  Next step — register the plugin with Claude Code:
+
+    claude --plugin-dir ~/superclaw
+
+  Or inside an existing Claude Code session:
+
+    /plugin install ~/superclaw
+
+  Then try:
+    - "take a screenshot" (Mac automation)
+    - "search memory for..." (persistent memory)
+    - "send to phone: hello" (Telegram)
 
   MCP Tools: 31 tools across 3 servers
   Agents: 39 specialists across 6 domains

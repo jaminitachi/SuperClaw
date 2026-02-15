@@ -77,24 +77,21 @@ Everything else is auto-installed by the setup wizard.
 git clone https://github.com/jaminitachi/SuperClaw.git ~/superclaw
 cd ~/superclaw
 
-# 2. One-command setup (installs OpenClaw, Peekaboo, builds MCP servers, creates config)
+# 2. One-command setup (installs everything, configures Telegram interactively, builds MCP servers)
 npm run setup
 
-# 3. Register with Claude Code (run INSIDE a Claude Code session)
-/plugin marketplace add ~/superclaw
-/plugin install superclaw
-
-# Or launch Claude Code with the plugin directly:
+# 3. Launch Claude Code with SuperClaw
 claude --plugin-dir ~/superclaw
 ```
 
-The setup wizard automatically:
-1. Installs OpenClaw gateway (`npm i -g openclaw`) and starts it
+That's it. The setup wizard handles everything:
+1. Installs OpenClaw gateway and starts it
 2. Installs Peekaboo via Homebrew (Mac automation)
 3. Installs SoX (audio processing for TTS)
 4. Installs Node.js dependencies and builds 3 MCP servers
-5. Creates data directory and default config
-6. Shows plugin registration instructions
+5. Asks for Telegram bot token + chat ID (optional, interactive)
+6. Creates `superclaw.json` with all settings
+7. Creates data directories
 
 ## Architecture
 
