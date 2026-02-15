@@ -12,6 +12,8 @@ export const TelegramConfigSchema = z.object({
   enabled: z.boolean().default(false),
   botToken: z.string().optional(),
   allowedUsers: z.array(z.string()).default([]),
+  allowFrom: z.array(z.string()).default([]),
+  defaultChatId: z.string().optional().default(''),
 });
 
 export const HeartbeatConfigSchema = z.object({
