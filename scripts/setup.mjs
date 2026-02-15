@@ -305,15 +305,41 @@ async function createConfig() {
 
       if (botToken) {
         log('');
-        log('To get your chat ID:');
-        log('  1. Open Telegram → search @userinfobot');
-        log('  2. Send /start — it replies with your ID');
+        log('To get your chat ID, send a message to your bot first, then:');
+        log(`  curl -s "https://api.telegram.org/bot${botToken}/getUpdates" | grep -o '"id":[0-9]*' | head -1`);
+        log('');
+        log('Or search @raw_data_bot on Telegram and send /start.');
         log('');
         const chatId = (await ask('Your chat ID:')).trim();
 
         if (botToken && chatId) {
           config.telegram = { enabled: true, botToken, allowFrom: [chatId], defaultChatId: chatId };
-          ok(`Telegram configured (chat ${chatId})`);
+
+          // ─── Register with OpenClaw automatically ─────────
+          log('Registering Telegram with OpenClaw...');
+          const enableResult = run('openclaw plugins enable telegram 2>&1');
+          if (enableResult !== null) {
+            ok('OpenClaw Telegram plugin enabled');
+          }
+          const addResult = run(`openclaw channels add --channel telegram --token "${botToken}" 2>&1`);
+          if (addResult !== null && !addResult.includes('Error')) {
+            ok('Telegram channel added to OpenClaw');
+          } else {
+            warn('Could not add channel — may already exist. Check: openclaw channels list');
+          }
+          // Restart gateway to apply
+          log('Restarting gateway to apply...');
+          run('openclaw gateway restart 2>&1');
+          // Wait for restart
+          await new Promise(r => setTimeout(r, 3000));
+          const gwCheck = run('curl -sf http://127.0.0.1:18789/ > /dev/null 2>&1 && echo up');
+          if (gwCheck === 'up') {
+            ok('Gateway restarted with Telegram');
+          } else {
+            warn('Gateway may still be restarting. Give it a few seconds.');
+          }
+
+          ok(`Telegram fully configured (chat ${chatId})`);
         }
       } else {
         log('Skipping Telegram. Run "npm run setup" again anytime to add it.');
