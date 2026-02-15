@@ -7,7 +7,7 @@
  *   npm run setup -- --skip-optional   # Skip optional components (Peekaboo, Telegram)
  */
 import { execSync } from 'child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir, platform } from 'os';
 import { fileURLToPath } from 'url';
@@ -236,7 +236,7 @@ async function setupDataDirectory() {
   if (!existsSync(dbPath)) {
     log('Memory database will be created on first MCP server start.');
   } else {
-    const size = Math.round(require('fs').statSync(dbPath).size / 1024);
+    const size = Math.round(statSync(dbPath).size / 1024);
     ok(`Memory database exists (${size}KB)`);
   }
 
