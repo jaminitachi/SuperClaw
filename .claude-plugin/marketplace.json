@@ -1,0 +1,33 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "superclaw",
+  "description": "OpenClaw + Claude Code integration — 39 agents, 15 skills, Mac automation, Telegram remote control, persistent memory, 3-tier orchestration",
+  "owner": {
+    "name": "jaminitachi"
+  },
+  "plugins": [
+    {
+      "name": "superclaw",
+      "description": "Turn your Mac into an AI-controlled workstation. 39 specialized agents, 31 MCP tools, Telegram remote control, persistent memory with knowledge graph, heartbeat monitoring, composable pipelines, and Qwen3-TTS voice synthesis. One-command setup.",
+      "version": "2.0.0",
+      "author": {
+        "name": "jaminitachi"
+      },
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/jaminitachi/SuperClaw",
+      "tags": [
+        "mac-automation",
+        "telegram",
+        "persistent-memory",
+        "knowledge-graph",
+        "heartbeat",
+        "orchestration",
+        "tts",
+        "openclaw",
+        "peekaboo"
+      ]
+    }
+  ],
+  "version": "2.0.0"
+}

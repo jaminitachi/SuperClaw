@@ -3,8 +3,10 @@
   "version": "2.0.0",
   "description": "OpenClaw + Claude Code integration — Mac control, Telegram, heartbeat, memory, research workflows",
   "author": {
-    "name": "SuperClaw"
+    "name": "jaminitachi"
   },
+  "repository": "https://github.com/jaminitachi/SuperClaw",
+  "homepage": "https://github.com/jaminitachi/SuperClaw",
   "license": "MIT",
   "keywords": [
     "claude-code",
