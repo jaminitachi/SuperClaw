@@ -49,6 +49,64 @@ function ask(question) {
   return new Promise((resolve) => rl.question(`  ${question} `, resolve));
 }
 
+function injectClaudeMd() {
+  step('7b', 'Injecting delegation rules into CLAUDE.md...');
+
+  const START_MARKER = '<!-- SC:START -->';
+  const END_MARKER = '<!-- SC:END -->';
+  const VERSION_MARKER = `<!-- SC:VERSION:2.0.0 -->`;
+
+  // Read SuperClaw delegation rules
+  const scClaudeMdPath = join(SUPERCLAW_ROOT, 'docs', 'CLAUDE.md');
+  if (!existsSync(scClaudeMdPath)) {
+    warn('docs/CLAUDE.md not found — skipping delegation rules injection');
+    return true;
+  }
+  const scContent = readFileSync(scClaudeMdPath, 'utf-8');
+
+  // Target: ~/.claude/CLAUDE.md
+  const targetPath = join(HOME, '.claude', 'CLAUDE.md');
+  mkdirSync(join(HOME, '.claude'), { recursive: true });
+
+  let existing = '';
+  if (existsSync(targetPath)) {
+    existing = readFileSync(targetPath, 'utf-8');
+  }
+
+  // Build new block
+  const newBlock = `${START_MARKER}\n${VERSION_MARKER}\n${scContent}\n${END_MARKER}`;
+
+  // Check if markers already exist
+  const startIdx = existing.indexOf(START_MARKER);
+  const endIdx = existing.indexOf(END_MARKER);
+
+  let merged;
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    // Replace existing block
+    const before = existing.substring(0, startIdx);
+    const after = existing.substring(endIdx + END_MARKER.length);
+    merged = `${before}${newBlock}${after}`;
+    ok('Delegation rules updated in ~/.claude/CLAUDE.md');
+  } else {
+    // No existing markers — prepend
+    if (existing.trim()) {
+      merged = `${newBlock}\n\n${existing}`;
+    } else {
+      merged = newBlock;
+    }
+    ok('Delegation rules injected into ~/.claude/CLAUDE.md');
+  }
+
+  // Backup before writing
+  if (existing.trim()) {
+    const backupPath = join(HOME, '.claude', `CLAUDE.md.backup.${Date.now()}`);
+    writeFileSync(backupPath, existing);
+  }
+
+  writeFileSync(targetPath, merged);
+  return true;
+}
+
 // ─── Steps ───────────────────────────────────────────────────
 async function checkPlatform() {
   step(0, 'Checking platform...');
@@ -392,6 +450,7 @@ async function main() {
   // Phase 3: Configure
   results.data = await setupDataDirectory();
   results.config = await createConfig();
+  results.claudemd = injectClaudeMd();
 
   // Phase 4: Register
   results.plugin = await registerPlugin();
@@ -411,6 +470,7 @@ async function main() {
     ['MCP Servers (3)', results.build],
     ['Data Directory', results.data],
     ['Configuration', results.config],
+    ['CLAUDE.md Delegation Rules', results.claudemd],
     ['Claude Code Plugin', results.plugin],
   ];
 
