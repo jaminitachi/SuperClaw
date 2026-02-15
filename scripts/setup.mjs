@@ -245,31 +245,51 @@ async function setupDataDirectory() {
 }
 
 async function createConfig() {
-  step(7, 'Checking configuration...');
+  step(7, 'Configuration & Telegram...');
+
+  // Load existing config or build from scratch
+  let config;
+  let isExisting = false;
 
   if (existsSync(CONFIG_PATH)) {
-    ok('superclaw.json exists');
-    return true;
+    try {
+      config = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+      isExisting = true;
+      ok('superclaw.json found');
+    } catch {
+      warn('superclaw.json is corrupted, recreating...');
+    }
   }
 
-  // Read OpenClaw token if available
-  let gatewayToken = '';
-  let gatewayPort = 18789;
-  try {
-    const oc = JSON.parse(readFileSync(OPENCLAW_CONFIG, 'utf-8'));
-    gatewayToken = oc?.gateway?.auth?.token ?? '';
-    gatewayPort = oc?.gateway?.port ?? 18789;
-  } catch {}
+  if (!config) {
+    // Read OpenClaw token if available
+    let gatewayToken = '';
+    let gatewayPort = 18789;
+    try {
+      const oc = JSON.parse(readFileSync(OPENCLAW_CONFIG, 'utf-8'));
+      gatewayToken = oc?.gateway?.auth?.token ?? '';
+      gatewayPort = oc?.gateway?.port ?? 18789;
+    } catch {}
 
-  // Detect Peekaboo path
-  const peekabooPath = run('which peekaboo') ?? '/opt/homebrew/bin/peekaboo';
+    const peekabooPath = run('which peekaboo') ?? '/opt/homebrew/bin/peekaboo';
 
-  // ─── Interactive Telegram setup ─────────────────────────
-  let telegramEnabled = false;
-  let telegramBotToken = '';
-  let telegramChatId = '';
+    config = {
+      "$schema": "./superclaw.schema.json",
+      gateway: { host: '127.0.0.1', port: gatewayPort, token: gatewayToken, reconnect: true },
+      telegram: { enabled: false, botToken: '', allowFrom: [], defaultChatId: '' },
+      heartbeat: { enabled: true, intervalSeconds: 300, collectors: ['system', 'process', 'github'] },
+      memory: { dbPath: 'data/memory.db', syncWithOpenClaw: true },
+      peekaboo: { path: peekabooPath },
+      obsidian: { vaultPath: '', autoSync: false, syncOn: ['session_end'], include: ['knowledge', 'entities', 'conversations'] },
+    };
+  }
 
-  if (!SKIP_OPTIONAL) {
+  // ─── Interactive Telegram setup (always ask if not configured) ───
+  const telegramAlreadyConfigured = config.telegram?.enabled && config.telegram?.botToken;
+
+  if (telegramAlreadyConfigured) {
+    ok(`Telegram already configured (chat ${config.telegram.defaultChatId})`);
+  } else if (!SKIP_OPTIONAL) {
     log('');
     log('Telegram lets you remote-control Claude from your phone.');
     const wantTelegram = (await ask('Set up Telegram? (y/n):')).trim().toLowerCase();
@@ -281,62 +301,29 @@ async function createConfig() {
       log('  2. Send /newbot and follow prompts');
       log('  3. Copy the token (looks like 123456789:ABCdef...)');
       log('');
-      telegramBotToken = (await ask('Bot token (or Enter to skip):')).trim();
+      const botToken = (await ask('Bot token (or Enter to skip):')).trim();
 
-      if (telegramBotToken) {
+      if (botToken) {
         log('');
         log('To get your chat ID:');
         log('  1. Open Telegram → search @userinfobot');
         log('  2. Send /start — it replies with your ID');
         log('');
-        telegramChatId = (await ask('Your chat ID:')).trim();
-        telegramEnabled = !!(telegramBotToken && telegramChatId);
-        if (telegramEnabled) {
-          ok(`Telegram configured (chat ${telegramChatId})`);
+        const chatId = (await ask('Your chat ID:')).trim();
+
+        if (botToken && chatId) {
+          config.telegram = { enabled: true, botToken, allowFrom: [chatId], defaultChatId: chatId };
+          ok(`Telegram configured (chat ${chatId})`);
         }
       } else {
-        log('Skipping Telegram for now. Edit superclaw.json later to add it.');
+        log('Skipping Telegram. Run "npm run setup" again anytime to add it.');
       }
     }
   }
 
-  const config = {
-    "$schema": "./superclaw.schema.json",
-    gateway: {
-      host: '127.0.0.1',
-      port: gatewayPort,
-      token: gatewayToken,
-      reconnect: true,
-    },
-    telegram: {
-      enabled: telegramEnabled,
-      botToken: telegramBotToken,
-      allowFrom: telegramChatId ? [telegramChatId] : [],
-      defaultChatId: telegramChatId,
-    },
-    heartbeat: {
-      enabled: true,
-      intervalSeconds: 300,
-      collectors: ['system', 'process', 'github'],
-    },
-    memory: {
-      dbPath: 'data/memory.db',
-      syncWithOpenClaw: true,
-    },
-    peekaboo: {
-      path: peekabooPath,
-    },
-    obsidian: {
-      vaultPath: '',
-      autoSync: false,
-      syncOn: ['session_end'],
-      include: ['knowledge', 'entities', 'conversations'],
-    },
-  };
-
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
   chmodSync(CONFIG_PATH, 0o600);
-  ok('Config saved to superclaw.json');
+  ok(isExisting ? 'Config updated' : 'Config created');
   return true;
 }
 
