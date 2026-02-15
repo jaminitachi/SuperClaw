@@ -18,6 +18,7 @@ const SC_KEYWORDS = [
   { pattern: /\b(analyze data|correlate|statistics)\b/i, skill: 'superclaw:research-analysis', action: 'analyze' },
   { pattern: /\b(check PRs|CI status|developer report)\b/i, skill: 'superclaw:dev-workflow', action: 'report' },
   { pattern: /\b(setup superclaw|install superclaw)\b/i, skill: 'superclaw:setup', action: 'setup' },
+  { pattern: /^(setup|설정|초기\s*설정|configure|get\s*started|getting\s*started)$/i, skill: 'superclaw:setup', action: 'setup' },
   { pattern: /\b(create skill|skill forge|make a skill)\b/i, skill: 'superclaw:skill-forge', action: 'forge' },
   { pattern: /\b(click on|open app|type into|window)\b/i, skill: 'superclaw:mac-control', action: 'control' },
   // Developer workflow keywords

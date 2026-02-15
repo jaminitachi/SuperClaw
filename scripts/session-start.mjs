@@ -68,7 +68,30 @@ async function main() {
     // non-JSON input is acceptable
   }
 
-  const dbPath = join(homedir(), 'superclaw', 'data', 'memory.db');
+  const scRoot = join(homedir(), 'superclaw');
+  const configPath = join(scRoot, 'superclaw.json');
+  const dbPath = join(scRoot, 'data', 'memory.db');
+
+  // First-run detection: if no config file, prompt user for setup
+  if (!existsSync(configPath)) {
+    const lines = [
+      '[SuperClaw] First run detected — no superclaw.json found.',
+      '',
+      'IMPORTANT: SuperClaw needs initial setup. Tell the user:',
+      '"SuperClaw is not configured yet. Say **setup** to run the configuration wizard (Telegram, gateway, memory, etc.)."',
+      '',
+      'The setup wizard will configure: OpenClaw gateway connection, Telegram bot, heartbeat, memory DB, and all MCP servers.',
+    ];
+    console.log(JSON.stringify({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: 'SessionStart',
+        additionalContext: lines.join('\n'),
+      },
+    }));
+    return;
+  }
+
   const lines = ['[SuperClaw] Persistent memory system active.'];
 
   if (existsSync(dbPath)) {
