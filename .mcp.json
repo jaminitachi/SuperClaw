@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "sc-bridge": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/sc-bridge.cjs"]
+    },
+    "sc-peekaboo": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/sc-peekaboo.cjs"]
+    },
+    "sc-memory": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge/sc-memory.cjs"]
+    }
+  }
+}
