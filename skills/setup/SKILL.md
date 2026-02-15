@@ -9,13 +9,12 @@ Setup is the complete installation and configuration wizard for SuperClaw. It sy
 </Purpose>
 
 <Use_When>
-- User says "setup superclaw", "install superclaw", "configure superclaw"
-- First-time installation of SuperClaw
-- User says "getting started", "first time", "how do I set up"
-- After cloning the SuperClaw repository for the first time
-- Reconfiguring components after a failed setup or environment change
+- User says "setup", "configure", "설정" and wants to reconfigure SuperClaw
+- Reconfiguring Telegram, gateway, or other components after initial install
 - User reports connectivity issues with gateway, Telegram, or memory
 - After upgrading SuperClaw to a new version
+- NOTE: First-time setup is handled by `npm run setup` in the terminal, NOT this skill.
+  If superclaw.json doesn't exist, tell the user to run `cd ~/superclaw && npm run setup` first.
 </Use_When>
 
 <Do_Not_Use_When>
