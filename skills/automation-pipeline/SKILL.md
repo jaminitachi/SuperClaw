@@ -5,7 +5,7 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob
 ---
 
 <Purpose>
-Automation Pipeline designs, builds, and executes multi-step automation pipelines that chain collectors, transforms, and actions into composable workflows. Pipelines can be triggered by cron schedules, webhooks, or events. Unlike OMC's pipeline mode (which chains agents sequentially), this skill builds data/automation pipelines that process information through defined stages -- collect data, transform it, and take action on the results.
+Automation Pipeline designs, builds, and executes multi-step automation pipelines that chain collectors, transforms, and actions into composable workflows. Pipelines can be triggered by cron schedules, webhooks, or events. Unlike agent-chaining pipelines (which chain agents sequentially), this skill builds data/automation pipelines that process information through defined stages -- collect data, transform it, and take action on the results.
 </Purpose>
 
 <Use_When>
@@ -19,7 +19,7 @@ Automation Pipeline designs, builds, and executes multi-step automation pipeline
 
 <Do_Not_Use_When>
 - Simple one-shot action with no chaining (use telegram-control or mac-control directly)
-- Agent-to-agent chaining for code tasks (use OMC's pipeline mode instead)
+- Agent-to-agent chaining for code tasks (use agent Task tool for sequential agent chaining)
 - Single cron job with no pipeline logic (use cron-mgr instead)
 - Task requires human-in-the-loop approval at each step (not yet supported)
 - The workflow is truly one-off with no recurrence value
@@ -109,34 +109,27 @@ Many useful automations require chaining multiple steps: collect system metrics,
    ")
    ```
 
-6. **Register the pipeline**: Save to ~/superclaw/data/pipelines/{name}.json and register via gateway:
-   ```
-   sc_gateway_request({ method: "pipeline.register", params: { pipeline: pipeline_json } })
+6. **Register the pipeline**: Save to ~/superclaw/data/pipelines/{name}.json
+
+7. **Schedule if recurring**: For cron-triggered pipelines, add to system crontab:
+   ```bash
+   crontab -l > /tmp/crontab.txt
+   echo "0 8 * * 1-5 /path/to/run-pipeline.sh {name} # pipeline:{name}" >> /tmp/crontab.txt
+   crontab /tmp/crontab.txt
    ```
 
-7. **Schedule if recurring**: For cron-triggered pipelines, register the schedule:
-   ```
-   sc_cron_add({ name: "pipeline:{name}", expression: "0 8 * * 1-5", command: "pipeline.run:{name}" })
-   ```
-
-8. **Dry run test**: Execute the pipeline once with dry_run=true to verify all steps work:
-   ```
-   sc_gateway_request({ method: "pipeline.run", params: { name: name, dry_run: true } })
-   ```
+8. **Dry run test**: Execute the pipeline once to verify all steps work
 
 9. **Report results**: Show the user the pipeline definition, trigger schedule, and dry run results.
 </Steps>
 
 <Tool_Usage>
-- `sc_gateway_request` -- Register, run, list, and manage pipelines via the OpenClaw gateway. Methods: `pipeline.register`, `pipeline.run`, `pipeline.list`, `pipeline.delete`, `pipeline.status`.
-- `sc_cron_add` -- Schedule recurring pipeline executions. Use expression format: minute hour day month weekday.
-- `sc_cron_list` -- View all scheduled pipeline jobs.
-- `sc_send_message` -- Direct message sending for testing action steps.
-- `sc_memory_store` -- Store pipeline execution history and results.
-- `sc_memory_search` -- Search for past pipeline runs and outputs.
-- `Write` -- Save pipeline JSON definitions to ~/superclaw/data/pipelines/.
-- `Read` -- Load existing pipeline definitions for modification.
-- `Bash` -- Run custom scripts referenced in pipeline steps.
+- `Bash` -- Manage system crontab for scheduling, run custom scripts referenced in pipeline steps
+- `sc_send_message` -- Direct message sending for testing action steps
+- `sc_memory_store` -- Store pipeline execution history and results
+- `sc_memory_search` -- Search for past pipeline runs and outputs
+- `Write` -- Save pipeline JSON definitions to ~/superclaw/data/pipelines/
+- `Read` -- Load existing pipeline definitions for modification
 </Tool_Usage>
 
 <Examples>
@@ -210,7 +203,6 @@ Why bad: Circular dependency makes the pipeline impossible to execute. Validatio
 
 <Escalation_And_Stop_Conditions>
 - If a collector step fails during dry run, report the specific error and suggest checking the data source configuration
-- If the gateway is not connected, abort and suggest running setup first
 - If cron registration fails, fall back to manual trigger and inform the user
 - If more than 2 steps fail in a single pipeline run, halt execution and report (do not continue blindly)
 - If a pipeline has been failing for 3+ consecutive runs, disable it and alert the user
@@ -327,9 +319,9 @@ This allows building complex workflows from smaller, tested pipeline components.
 
 | Issue | Resolution |
 |-------|-----------|
-| Pipeline not triggering | Check cron expression with `sc_cron_list`. Verify gateway is running. |
+| Pipeline not triggering | Check cron expression with `crontab -l`. Verify cron daemon is running. |
 | Collector returns empty | Verify data source is accessible. Check config parameters. |
 | Transform produces no output | Likely filter is too restrictive. Test with broader conditions. |
-| Action fails silently | Check gateway logs. Verify Telegram channel is configured. |
+| Action fails silently | Check logs. Verify Telegram channel is configured. |
 | Pipeline runs but no notification | Check error_strategy -- skip-step may be hiding failures. Try fail-fast for debugging. |
 </Advanced>

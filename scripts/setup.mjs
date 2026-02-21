@@ -18,7 +18,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOME = homedir();
 const SUPERCLAW_ROOT = join(__dirname, '..');
 const CONFIG_PATH = join(SUPERCLAW_ROOT, 'superclaw.json');
-const OPENCLAW_CONFIG = join(HOME, '.openclaw', 'openclaw.json');
 const SKIP_OPTIONAL = process.argv.includes('--skip-optional');
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -108,6 +107,53 @@ function injectClaudeMd() {
 }
 
 // ─── Steps ───────────────────────────────────────────────────
+async function checkPeekabooPermissions() {
+  const permsOutput = run('peekaboo permissions --verbose') ?? '';
+  const screenOk = permsOutput.includes('Screen Recording') && permsOutput.includes('Granted');
+  const accessOk = permsOutput.includes('Accessibility') && permsOutput.includes('Granted');
+
+  if (screenOk && accessOk) {
+    ok('Peekaboo permissions already granted');
+    return true;
+  }
+
+  warn('Peekaboo needs macOS permissions. Opening System Settings...');
+
+  if (!screenOk) {
+    run('open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"');
+    log('  → Screen Recording: Toggle ON for your terminal app (iTerm2/Terminal)');
+  }
+  if (!accessOk) {
+    run('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
+    log('  → Accessibility: Toggle ON for your terminal app (iTerm2/Terminal)');
+  }
+
+  log('');
+  log('Waiting for permissions to be granted (checking every 3s, timeout 60s)...');
+
+  const startTime = Date.now();
+  const TIMEOUT = 60_000;
+
+  while (Date.now() - startTime < TIMEOUT) {
+    await new Promise(r => setTimeout(r, 3000));
+    const check = run('peekaboo permissions --verbose') ?? '';
+    const sOk = check.includes('Screen Recording') && !check.includes('Not Granted');
+    const aOk = check.includes('Accessibility') && !check.includes('Not Granted');
+
+    if (sOk && aOk) {
+      ok('Both permissions granted!');
+      return true;
+    }
+
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    log(`  ... still waiting (${elapsed}s) — toggle the permissions in System Settings`);
+  }
+
+  warn('Timeout — permissions not yet granted. You can grant them later in System Settings.');
+  warn('Peekaboo features will not work until permissions are granted.');
+  return false;
+}
+
 async function checkPlatform() {
   step(0, 'Checking platform...');
   const os = platform();
@@ -121,67 +167,6 @@ async function checkPlatform() {
   return os;
 }
 
-async function installOpenClaw() {
-  step(1, 'Checking OpenClaw...');
-
-  // Check if openclaw CLI exists
-  if (hasCommand('openclaw')) {
-    const version = run('openclaw --version') ?? 'unknown';
-    ok(`OpenClaw installed (${version})`);
-  } else {
-    log('OpenClaw not found. Installing...');
-    const result = run('npm install -g openclaw', { stdio: 'inherit', timeout: 120_000 });
-    if (result === null) {
-      // npm install -g may need stdio: inherit to show progress
-      try {
-        execSync('npm install -g openclaw', { stdio: 'inherit', timeout: 120_000 });
-        ok('OpenClaw installed');
-      } catch {
-        fail('Could not install OpenClaw. Try manually: npm install -g openclaw');
-        return false;
-      }
-    } else {
-      ok('OpenClaw installed');
-    }
-  }
-
-  // Check config
-  if (existsSync(OPENCLAW_CONFIG)) {
-    const config = JSON.parse(readFileSync(OPENCLAW_CONFIG, 'utf-8'));
-    ok(`Config found (gateway port: ${config.gateway?.port ?? 18789})`);
-  } else {
-    log('Initializing OpenClaw config...');
-    run('openclaw init', { stdio: 'inherit' });
-    if (existsSync(OPENCLAW_CONFIG)) {
-      ok('Config initialized');
-    } else {
-      warn('Config not created. Run "openclaw init" manually after setup.');
-    }
-  }
-
-  // Check gateway
-  const gatewayUp = run('curl -sf http://127.0.0.1:18789/ > /dev/null 2>&1 && echo up');
-  if (gatewayUp === 'up') {
-    ok('Gateway is running on port 18789');
-  } else {
-    log('Starting gateway...');
-    try {
-      execSync('openclaw gateway start', { timeout: 10_000 });
-      // Wait a moment for startup
-      await new Promise(r => setTimeout(r, 2000));
-      const check = run('curl -sf http://127.0.0.1:18789/ > /dev/null 2>&1 && echo up');
-      if (check === 'up') {
-        ok('Gateway started');
-      } else {
-        warn('Gateway may still be starting. Check with: curl http://127.0.0.1:18789/health');
-      }
-    } catch {
-      warn('Could not auto-start gateway. Start manually: openclaw gateway start');
-    }
-  }
-
-  return true;
-}
 
 async function installPeekaboo(os) {
   step(2, 'Checking Peekaboo (Mac automation)...');
@@ -199,7 +184,7 @@ async function installPeekaboo(os) {
   if (hasCommand('peekaboo')) {
     const version = run('peekaboo --version') ?? 'unknown';
     ok(`Peekaboo ${version}`);
-    return true;
+    return checkPeekabooPermissions();
   }
 
   if (!hasBrew()) {
@@ -213,12 +198,7 @@ async function installPeekaboo(os) {
   try {
     execSync('brew install peekaboo', { stdio: 'inherit', timeout: 300_000 });
     ok('Peekaboo installed');
-
-    log('');
-    warn('Peekaboo needs macOS permissions. Grant these in System Settings:');
-    log('  - Privacy & Security > Accessibility > Terminal/iTerm2');
-    log('  - Privacy & Security > Screen Recording > Terminal/iTerm2');
-    return true;
+    return checkPeekabooPermissions();
   } catch {
     fail('Peekaboo installation failed. Try manually: brew install peekaboo');
     return false;
@@ -320,23 +300,13 @@ async function createConfig() {
   }
 
   if (!config) {
-    // Read OpenClaw token if available
-    let gatewayToken = '';
-    let gatewayPort = 18789;
-    try {
-      const oc = JSON.parse(readFileSync(OPENCLAW_CONFIG, 'utf-8'));
-      gatewayToken = oc?.gateway?.auth?.token ?? '';
-      gatewayPort = oc?.gateway?.port ?? 18789;
-    } catch {}
-
     const peekabooPath = run('which peekaboo') ?? '/opt/homebrew/bin/peekaboo';
 
     config = {
       "$schema": "./superclaw.schema.json",
-      gateway: { host: '127.0.0.1', port: gatewayPort, token: gatewayToken, reconnect: true },
       telegram: { enabled: false, botToken: '', allowFrom: [], defaultChatId: '' },
       heartbeat: { enabled: true, intervalSeconds: 300, collectors: ['system', 'process', 'github'] },
-      memory: { dbPath: 'data/memory.db', syncWithOpenClaw: true },
+      memory: { dbPath: 'data/memory.db' },
       peekaboo: { path: peekabooPath },
       obsidian: { vaultPath: '', autoSync: false, syncOn: ['session_end'], include: ['knowledge', 'entities', 'conversations'] },
     };
@@ -373,28 +343,13 @@ async function createConfig() {
         if (botToken && chatId) {
           config.telegram = { enabled: true, botToken, allowFrom: [chatId], defaultChatId: chatId };
 
-          // ─── Register with OpenClaw automatically ─────────
-          log('Registering Telegram with OpenClaw...');
-          const enableResult = run('openclaw plugins enable telegram 2>&1');
-          if (enableResult !== null) {
-            ok('OpenClaw Telegram plugin enabled');
-          }
-          const addResult = run(`openclaw channels add --channel telegram --token "${botToken}" 2>&1`);
-          if (addResult !== null && !addResult.includes('Error')) {
-            ok('Telegram channel added to OpenClaw');
+          // Verify bot token works
+          log('Verifying Telegram bot...');
+          const verifyResult = run(`curl -sf "https://api.telegram.org/bot${botToken}/getMe" 2>&1`);
+          if (verifyResult && verifyResult.includes('"ok":true')) {
+            ok('Telegram bot verified');
           } else {
-            warn('Could not add channel — may already exist. Check: openclaw channels list');
-          }
-          // Restart gateway to apply
-          log('Restarting gateway to apply...');
-          run('openclaw gateway restart 2>&1');
-          // Wait for restart
-          await new Promise(r => setTimeout(r, 3000));
-          const gwCheck = run('curl -sf http://127.0.0.1:18789/ > /dev/null 2>&1 && echo up');
-          if (gwCheck === 'up') {
-            ok('Gateway restarted with Telegram');
-          } else {
-            warn('Gateway may still be restarting. Give it a few seconds.');
+            warn('Could not verify bot token. Double-check the token.');
           }
 
           ok(`Telegram fully configured (chat ${chatId})`);
@@ -431,7 +386,7 @@ async function main() {
   console.log(`
 \x1b[36m╔══════════════════════════════════════════╗
 ║       SuperClaw Setup Wizard v2.0        ║
-║  OpenClaw + Claude Code Integration      ║
+║     Claude Code AI Plugin                ║
 ╚══════════════════════════════════════════╝\x1b[0m
 `);
 
@@ -439,7 +394,6 @@ async function main() {
 
   // Phase 1: Platform & Prerequisites
   const os = await checkPlatform();
-  results.openclaw = await installOpenClaw();
   results.peekaboo = await installPeekaboo(os);
   results.sox = await installSox(os);
 
@@ -463,7 +417,6 @@ async function main() {
 `);
 
   const items = [
-    ['OpenClaw Gateway', results.openclaw],
     ['Peekaboo (Mac Automation)', results.peekaboo],
     ['SoX (Audio/TTS)', results.sox],
     ['Node.js Dependencies', results.deps],

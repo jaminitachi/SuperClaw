@@ -37,7 +37,7 @@ async function main() {
       const filePath = input?.tool_input?.file_path || '';
       const sourceExts = /\.(ts|tsx|js|jsx|mjs|py|go|rs|java|c|cpp|h|svelte|vue)$/;
       if (sourceExts.test(filePath)) {
-        return `⚠️ Source file modification detected: ${filePath}. Delegate source code changes to executor agent (superclaw:sc-debugger or oh-my-claudecode:executor). Direct source file modification should be avoided per Delegation-First Philosophy.`;
+        return `⚠️ Source file modification detected: ${filePath}. Delegate source code changes to executor agent (superclaw:sc-atlas). Direct source file modification should be avoided per Delegation-First Philosophy.`;
       }
       return null;
     },
@@ -52,8 +52,8 @@ async function main() {
     'sc_screenshot': () => 'After screenshot, use Read to view the image for analysis.',
     'sc_click': () => 'Always use sc_see before sc_click to verify UI element positions.',
     'sc_memory_store': () => 'Check sc_memory_search first to avoid duplicates.',
-    'sc_send_message': () => 'Verify gateway is connected (sc_gateway_status) before sending.',
-    'sc_cron_add': () => 'Validate cron expression before adding. List existing jobs (sc_cron_list) to avoid duplicates.',
+    'sc_send_message': () => 'Verify gateway is connected (sc_telegram_status) before sending.',
+    'sc_cron_add': () => 'Validate cron expression before adding. List existing jobs to avoid duplicates.',
   };
 
   const reminderFn = reminders[toolName];

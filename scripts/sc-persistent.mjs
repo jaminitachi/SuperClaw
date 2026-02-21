@@ -5,12 +5,13 @@
 import { readStdin } from './lib/stdin.mjs';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 
 async function main() {
   await readStdin(2000);
 
   // Check if any SuperClaw pipelines are actively running
-  const stateFile = join(process.env.HOME, 'superclaw', 'data', 'pipeline-state.json');
+  const stateFile = join(homedir(), 'superclaw', 'data', 'pipeline-state.json');
   let hasActivePipeline = false;
 
   try {

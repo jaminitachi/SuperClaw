@@ -41,10 +41,10 @@ export async function screenshot(options?: {
   format?: 'png' | 'jpg';
 }): Promise<ScreenshotResult> {
   const outPath = join(tmpdir(), `sc-screenshot-${randomUUID()}.${options?.format ?? 'png'}`);
-  const args = ['screenshot', '--output', outPath];
+  const args = ['image', '--path', outPath];
 
   if (options?.window) {
-    args.push('--window', options.window);
+    args.push('--app', options.window);
   }
   if (options?.region) {
     const { x, y, w, h } = options.region;
@@ -99,8 +99,19 @@ export async function hotkey(keys: string): Promise<void> {
 }
 
 export async function ocr(options?: { window?: string }): Promise<string> {
-  const args = ['ocr'];
-  if (options?.window) args.push('--window', options.window);
-  const result = await runPeekaboo(args);
-  return result;
+  // Peekaboo does not expose a standalone 'ocr' subcommand.
+  // Use 'see --json' to capture UI elements and extract visible text from titles/values.
+  const args = ['see', '--json'];
+  if (options?.window) args.push('--app', options.window);
+  const raw = await runPeekaboo(args);
+  try {
+    const parsed = JSON.parse(raw);
+    const elements: Array<{ title?: string; value?: string }> = parsed.elements ?? parsed ?? [];
+    const texts = elements
+      .flatMap((el) => [el.title, el.value])
+      .filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+    return texts.join('\n');
+  } catch {
+    return raw;
+  }
 }

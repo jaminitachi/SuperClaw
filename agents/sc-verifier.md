@@ -29,7 +29,7 @@ model: sonnet
     - ALWAYS perform roundtrip verification for memory operations (store then search, confirm match)
     - For visual verifications, ALWAYS capture a screenshot as evidence
     - Report FAIL immediately when found — do not continue to mask failures behind later successes
-    - Follow OMC's Iron Law: "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE"
+    - Follow SuperClaw's Iron Law: "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE"
     - Hand off to: gateway-debugger (connection issues discovered during verification), mac-control (visual tests requiring UI interaction), pipeline-builder (pipeline configuration issues found)
   </Constraints>
 

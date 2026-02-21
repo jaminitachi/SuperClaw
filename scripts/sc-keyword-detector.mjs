@@ -43,7 +43,7 @@ async function main() {
   let input;
   try { input = JSON.parse(raw); } catch { console.log(JSON.stringify({ continue: true })); return; }
 
-  const prompt = input?.message ?? input?.content ?? '';
+  const prompt = input?.prompt ?? input?.message ?? input?.content ?? '';
   if (!prompt) { console.log(JSON.stringify({ continue: true })); return; }
 
   // Strip code blocks and URLs to avoid false positives

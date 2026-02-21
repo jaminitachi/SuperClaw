@@ -43,12 +43,12 @@ async function getRecentMemoryKeys(dbPath) {
     const Database = (await import('better-sqlite3')).default;
     const db = new Database(dbPath, { readonly: true });
     const rows = db
-      .prepare('SELECT key, category FROM memories ORDER BY updated_at DESC LIMIT 5')
+      .prepare('SELECT subject, category FROM knowledge ORDER BY updated_at DESC LIMIT 5')
       .all();
     db.close();
     for (const r of rows) {
       const cat = r.category ? ` [${r.category}]` : '';
-      keys.push(`${r.key}${cat}`);
+      keys.push(`${r.subject}${cat}`);
     }
   } catch {
     // better-sqlite3 may not be available — skip silently
@@ -65,6 +65,7 @@ async function main() {
   }
 
   const dbPath = join(homedir(), 'superclaw', 'data', 'memory.db');
+  const configPath = join(homedir(), 'superclaw', 'superclaw.json');
   const contextLines = [
     '[SuperClaw] Context compaction imminent.',
     'Critical knowledge should be persisted via sc_memory_store before it is lost.',
@@ -87,16 +88,14 @@ async function main() {
     }
   }
 
-  // Gateway status
+  // Telegram bot status
   try {
-    const response = await fetch('http://127.0.0.1:18789/', {
-      signal: AbortSignal.timeout(1500),
-    }).catch(() => null);
-    if (response) {
-      rememberParts.push('OpenClaw gateway was connected');
+    const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
+    if (cfg.telegram?.enabled && cfg.telegram?.botToken) {
+      rememberParts.push('Telegram bot was configured');
     }
   } catch {
-    // Gateway check failed — not critical for compaction
+    // Config read failed — not critical for compaction
   }
 
   // Emit remember tags for the model to preserve

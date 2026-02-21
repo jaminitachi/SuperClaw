@@ -1,7 +1,7 @@
 {
   "name": "superclaw",
   "version": "2.0.0",
-  "description": "OpenClaw + Claude Code integration — Mac control, Telegram, heartbeat, memory, research workflows",
+  "description": "Claude Code AI plugin — Mac control, Telegram, heartbeat, memory, research workflows",
   "author": {
     "name": "jaminitachi"
   },
@@ -11,12 +11,12 @@
   "keywords": [
     "claude-code",
     "plugin",
-    "openclaw",
     "telegram",
     "heartbeat",
     "mac-automation",
     "persistent-memory"
   ],
+  "commands": "./commands/",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json"
 }

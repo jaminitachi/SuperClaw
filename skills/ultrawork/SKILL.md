@@ -109,7 +109,7 @@ Generate final report:
 - Learnings accumulated: categorized summary
 - Completion promise status: FULFILLED / PARTIAL (with remaining items)
 - Store comprehensive summary via sc_memory_store (category: "project-completion")
-- If critical failures, alert via Telegram (sc_gateway_request)
+- If critical failures, alert via Telegram (sc_send_message)
 </Execution_Policy>
 
 <Steps>
@@ -155,10 +155,10 @@ Generate final report:
 - `sc_learning_recall` — Inject learnings into next iteration's prompts
 - `sc_verification_log` — Log verification results for audit trail
 - `sc_memory_store` — Store completion reports for trend analysis
-- `sc_gateway_request` — Send critical alerts to Telegram
+- `sc_send_message` — Send critical alerts to Telegram
 - `Read` — Verify changed files, read build outputs
-- `Bash` — Run builds, tests, diagnostics
-- `mcp__plugin_oh-my-claudecode_t__lsp_diagnostics_directory` — Project-level type checking
+- `Bash` — Run builds, tests, diagnostics (use `npx tsc --noEmit` for TypeScript checking)
+- `LSP` — Code intelligence with `operation: "diagnostics"` for file-level type checking
 - `Grep` — Search for error patterns
 - `Glob` — Find test files, build outputs
 </Tool_Usage>
@@ -226,7 +226,7 @@ Why bad: "Refactor" is vague — need to establish what "done" means. Should ask
 - If critical MCP tools (sc_learning_store, sc_verification_log) are unavailable, degrade gracefully but warn user
 - If all subagents fail repeatedly (3+ iterations with zero progress), escalate to sc-architect for architectural review
 - If verification consistently fails (5+ tasks in a row), stop and report to user — may indicate fundamental issue
-- If user says "stop", "cancel", "cancelomc", exit immediately with current state report
+- If user says "stop", "cancel", exit immediately with current state report
 </Escalation_And_Stop_Conditions>
 
 <Final_Checklist>

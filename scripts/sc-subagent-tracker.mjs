@@ -5,8 +5,9 @@
 import { readStdin } from './lib/stdin.mjs';
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 
-const STATE_DIR = join(process.env.HOME, 'superclaw', 'data');
+const STATE_DIR = join(homedir(), 'superclaw', 'data');
 const TRACKER_FILE = join(STATE_DIR, 'subagent-tracking.json');
 
 function loadState() {
@@ -32,8 +33,8 @@ async function main() {
   try { input = JSON.parse(raw); } catch { console.log(JSON.stringify({ continue: true })); return; }
 
   const state = loadState();
-  const agentType = input?.tool_input?.subagent_type ?? input?.agentType ?? 'unknown';
-  const agentName = agentType.replace('oh-my-claudecode:', '').replace('superclaw:', '');
+  const agentType = input?.agent_type ?? input?.tool_input?.subagent_type ?? input?.agentType ?? 'unknown';
+  const agentName = agentType.replace('superclaw:', '');
 
   if (action === 'start') {
     state.active.push({ name: agentName, startedAt: new Date().toISOString() });

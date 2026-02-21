@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "superclaw",
-  "description": "OpenClaw + Claude Code integration — 39 agents, 15 skills, Mac automation, Telegram remote control, persistent memory, 3-tier orchestration",
+  "description": "Claude Code AI plugin — 39 agents, 15 skills, Mac automation, Telegram remote control, persistent memory, 3-tier orchestration",
   "owner": {
     "name": "jaminitachi"
   },
@@ -24,7 +24,6 @@
         "heartbeat",
         "orchestration",
         "tts",
-        "openclaw",
         "peekaboo"
       ]
     }

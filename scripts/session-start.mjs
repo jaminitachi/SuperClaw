@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * SessionStart hook — loads relevant memories from persistent DB and OMC
+ * SessionStart hook — loads relevant memories from persistent DB and SC
  * notepad priority context into the session.
  */
 import { readStdin } from './lib/stdin.mjs';
@@ -20,8 +20,8 @@ async function loadRecentMemories(dbPath) {
     const db = new Database(dbPath, { readonly: true });
     const rows = db
       .prepare(
-        `SELECT key, value, category, updated_at
-         FROM memories
+        `SELECT subject, content, category, updated_at
+         FROM knowledge
          ORDER BY updated_at DESC
          LIMIT 10`
       )
@@ -31,7 +31,7 @@ async function loadRecentMemories(dbPath) {
       summaries.push('Recent memories:');
       for (const r of rows) {
         const cat = r.category ? ` [${r.category}]` : '';
-        summaries.push(`  - ${r.key}${cat}: ${String(r.value).slice(0, 120)}`);
+        summaries.push(`  - ${r.subject}${cat}: ${String(r.content).slice(0, 120)}`);
       }
     }
   } catch {
@@ -41,21 +41,49 @@ async function loadRecentMemories(dbPath) {
 }
 
 /**
- * Load OMC notepad priority context if available.
+ * Load SC notepad priority context if available.
  */
-function loadOmcPriorityContext() {
+function loadScPriorityContext() {
   const lines = [];
   try {
-    const notepadPath = join(homedir(), '.claude', '.omc', 'notepad.json');
+    const notepadPath = join(homedir(), '.claude', '.sc', 'notepad.json');
     if (existsSync(notepadPath)) {
       const notepad = JSON.parse(readFileSync(notepadPath, 'utf-8'));
       if (notepad.priority && notepad.priority.trim()) {
-        lines.push('OMC Priority Context:');
+        lines.push('SC Priority Context:');
         lines.push(`  ${notepad.priority.trim()}`);
       }
     }
   } catch {
     // Notepad not available or malformed — skip silently
+  }
+  return lines;
+}
+
+/**
+ * Get Claude Code usage stats via CLI
+ */
+async function getUsageStats() {
+  const lines = [];
+  try {
+    const { execSync } = await import('child_process');
+
+    // Get usage output
+    const usage = execSync('claude usage 2>/dev/null || echo "Usage data unavailable"', {
+      encoding: 'utf-8',
+      timeout: 5000,
+    }).trim();
+
+    if (usage && !usage.includes('unavailable')) {
+      lines.push('');
+      lines.push('Usage Stats:');
+      // Add the raw usage output, indented
+      for (const line of usage.split('\n')) {
+        lines.push(`  ${line}`);
+      }
+    }
+  } catch {
+    // Usage stats unavailable — skip silently
   }
   return lines;
 }
@@ -95,8 +123,9 @@ async function main() {
 
   // Check if Telegram is configured (optional but useful to mention)
   let telegramHint = '';
+  let cfg = null;
   try {
-    const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
+    cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
     if (!cfg.telegram?.enabled || !cfg.telegram?.botToken) {
       telegramHint = 'Telegram is not configured. To add it, run `npm run setup` again or edit superclaw.json.';
     }
@@ -117,24 +146,37 @@ async function main() {
     lines.push('No memory DB found. Use sc_memory_store to start building persistent memory.');
   }
 
-  // Load OMC notepad priority context
-  const omcContext = loadOmcPriorityContext();
-  if (omcContext.length > 0) {
-    lines.push(...omcContext);
+  // Load SC notepad priority context
+  const scContext = loadScPriorityContext();
+  if (scContext.length > 0) {
+    lines.push(...scContext);
   }
 
-  // Check if OpenClaw gateway is available
+  // Check if Telegram bot is reachable
   try {
-    const response = await fetch('http://127.0.0.1:18789/', {
-      signal: AbortSignal.timeout(2000),
-    }).catch(() => null);
-    if (response) {
-      lines.push('OpenClaw gateway: connected (port 18789)');
-    } else {
-      lines.push('OpenClaw gateway: not reachable');
+    if (cfg?.telegram?.enabled && cfg?.telegram?.botToken) {
+      const res = await fetch(`https://api.telegram.org/bot${cfg.telegram.botToken}/getMe`, {
+        signal: AbortSignal.timeout(1500),
+      }).catch(() => null);
+      if (res) {
+        const data = await res.json();
+        if (data.ok) {
+          lines.push(`Telegram bot: connected (@${data.result.username})`);
+        } else {
+          lines.push('Telegram bot: token invalid');
+        }
+      } else {
+        lines.push('Telegram bot: not reachable (network issue)');
+      }
     }
   } catch {
-    lines.push('OpenClaw gateway: not reachable');
+    // Skip Telegram check silently
+  }
+
+  // Usage stats
+  const usageLines = await getUsageStats();
+  if (usageLines.length > 0) {
+    lines.push(...usageLines);
   }
 
   lines.push('Skills: telegram-control, mac-control, memory-mgr, heartbeat, automation-pipeline, cron-mgr, skill-forge, setup, dev-workflow, paper-review, experiment-log, lit-review, research-analysis');

@@ -1,7 +1,7 @@
 {
   "name": "superclaw",
   "version": "2.0.0",
-  "description": "OpenClaw + Claude Code integration plugin — Telegram remote control, heartbeat, persistent memory, self-improving skills, composable pipelines, full Mac agentic control",
+  "description": "Claude Code AI plugin — Telegram remote control, heartbeat, persistent memory, self-improving skills, composable pipelines, full Mac agentic control",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -9,7 +9,13 @@
     "test": "vitest",
     "test:run": "vitest run",
     "setup": "node scripts/setup.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "daemon": "node bridge/sc-daemon.cjs",
+    "daemon:start": "node scripts/daemon.mjs start",
+    "daemon:stop": "node scripts/daemon.mjs stop",
+    "daemon:status": "node scripts/daemon.mjs status",
+    "daemon:install": "node scripts/daemon.mjs install",
+    "daemon:uninstall": "node scripts/daemon.mjs uninstall"
   },
   "files": [
     "agents",
@@ -25,13 +31,11 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
     "better-sqlite3": "^11.7.0",
-    "ws": "^8.18.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
-    "@types/ws": "^8.5.0",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"

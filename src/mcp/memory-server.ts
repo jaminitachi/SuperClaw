@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import Database from 'better-sqlite3';
+import { SessionBridge } from '../memory/session-bridge.js';
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
@@ -15,6 +16,8 @@ if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+
+const sessionBridge = new SessionBridge(db);
 
 // Load config for defaults
 let scConfig: Record<string, any> = {};
@@ -232,6 +235,32 @@ server.tool(
     ).join('\n\n---\n\n');
 
     return { content: [{ type: 'text', text: text }] };
+  }
+);
+
+// --- Delete ---
+
+server.tool(
+  'sc_memory_delete',
+  'Delete a memory entry by ID and table type',
+  {
+    table: z.enum(['knowledge', 'entities', 'learnings', 'conversations']).describe('Which table to delete from'),
+    id: z.number().describe('The ID of the entry to delete'),
+  },
+  async ({ table, id }) => {
+    try {
+      const validTables = ['knowledge', 'entities', 'learnings', 'conversations'];
+      if (!validTables.includes(table)) {
+        return { content: [{ type: 'text', text: `Invalid table: ${table}` }], isError: true };
+      }
+      const result = db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
+      if (result.changes === 0) {
+        return { content: [{ type: 'text', text: `No entry found with id ${id} in ${table}` }] };
+      }
+      return { content: [{ type: 'text', text: `Deleted entry #${id} from ${table}` }] };
+    } catch (err) {
+      return { content: [{ type: 'text', text: `Delete error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
   }
 );
 
@@ -1064,6 +1093,26 @@ server.tool(
         isError: true,
       };
     }
+  }
+);
+
+// --- Session History ---
+
+server.tool(
+  'sc_memory_session_history',
+  'List past conversation sessions with message counts and last active timestamps',
+  {
+    limit: z.number().optional().describe('Max sessions to return (default: 10)'),
+  },
+  async ({ limit }) => {
+    const sessions = sessionBridge.getSessionHistory(limit ?? 10);
+    if (sessions.length === 0) {
+      return { content: [{ type: 'text', text: 'No conversation sessions found.' }] };
+    }
+    const lines = sessions.map(
+      (s) => `Session: ${s.sessionId} | Messages: ${s.messageCount} | Last active: ${s.lastActive}`
+    );
+    return { content: [{ type: 'text', text: `--- Session History ---\n${lines.join('\n')}` }] };
   }
 );
 
