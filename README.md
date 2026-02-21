@@ -94,6 +94,32 @@ That's it. The setup wizard handles everything:
 7. Injects delegation rules into `~/.claude/CLAUDE.md`
 8. Registers SuperClaw as a permanent Claude Code plugin (no `--plugin-dir` needed)
 
+### Manual Plugin Registration
+
+If `npm run setup` fails to auto-register the plugin, or if you prefer manual installation:
+
+```bash
+# Register the local directory as a plugin marketplace
+claude plugin marketplace add ~/superclaw
+
+# Install the plugin permanently (user-scoped)
+claude plugin install superclaw@superclaw
+```
+
+Once registered, SuperClaw loads automatically every time you run `claude` — no `--plugin-dir` flag needed.
+
+To verify registration:
+```bash
+claude plugin list          # Should show superclaw@superclaw
+claude plugin marketplace list  # Should show ~/superclaw
+```
+
+To uninstall:
+```bash
+claude plugin uninstall superclaw@superclaw
+claude plugin marketplace remove superclaw
+```
+
 ## Architecture
 
 ```
