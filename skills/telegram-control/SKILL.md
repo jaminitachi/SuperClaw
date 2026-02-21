@@ -1,13 +1,13 @@
 ---
 name: telegram-control
-description: Send messages, images, and commands via Telegram through OpenClaw gateway
+description: Send messages, images, and commands via Telegram via direct Bot API
 allowed-tools: Read, Bash, Grep, Glob
 ---
 
 <Purpose>
 Bridge between Claude Code and Telegram for remote control and notifications. Enables sending
-text messages, screenshots, status reports, and formatted alerts to your phone via the OpenClaw
-gateway. Also handles incoming command routing so Telegram acts as a bidirectional control channel
+text messages, screenshots, status reports, and formatted alerts to your phone via direct Bot API.
+Also handles incoming command routing so Telegram acts as a bidirectional control channel
 for SuperClaw operations.
 </Purpose>
 
@@ -22,7 +22,7 @@ for SuperClaw operations.
 
 <Do_Not_Use_When>
 - Local-only operations with no messaging need -- just run the task directly
-- User has not configured the OpenClaw gateway or Telegram channel
+- User has not configured the Telegram bot token or chat ID
 - User wants macOS notifications only -- use mac-control with sc_notify instead
 - User wants Slack messages -- use the Slack MCP tools directly
 </Do_Not_Use_When>
@@ -31,24 +31,23 @@ for SuperClaw operations.
 Claude Code runs on a Mac but the user is often away from the screen. Telegram provides a
 persistent, mobile-accessible channel for receiving updates, screenshots, and alerts. Without
 this skill, long-running builds, deployments, or monitoring tasks have no way to reach the
-user when they step away. The OpenClaw gateway acts as the transport layer, handling WebSocket
-connections, message queuing, and retry logic so the skill only needs to format and send.
+user when they step away. The Bot API provides direct access to Telegram messaging with
+automatic retry logic and delivery confirmation.
 </Why_This_Exists>
 
 <Execution_Policy>
-- Execute sequentially: check gateway first, then format, then send, then verify
-- Max retries: 2 for transient gateway errors (reconnect between retries)
+- Execute sequentially: check bot status first, then format, then send, then verify
+- Max retries: 2 for transient API errors
 - Timeout: 10 seconds per send operation
-- Cancel: If gateway is unreachable after 2 retries, report failure and suggest alternatives
+- Cancel: If Bot API is unreachable after 2 retries, report failure and suggest alternatives
 - Never block on delivery confirmation -- Telegram delivery is async
 </Execution_Policy>
 
 <Steps>
-1. **Phase 1 - Gateway Health Check**: Verify the OpenClaw gateway is reachable
-   - Tool: `sc_gateway_status` (no parameters)
-   - Output: Connection status JSON with gateway state, enabled channels, heartbeat config
-   - If gateway is down: attempt `ensureConnected` via sc_gateway_request, retry once
-   - If still down: report to user with troubleshooting steps and stop
+1. **Phase 1 - Bot API Health Check**: Verify the Telegram Bot API is reachable
+   - Tool: `sc_telegram_status` (no parameters)
+   - Output: Connection status JSON with bot state and configuration
+   - If bot is unreachable: report to user with troubleshooting steps and stop
 
 2. **Phase 2 - Content Preparation**: Format the message for Telegram
    - Plain text: wrap in appropriate formatting (bold headers, monospace for code)
@@ -57,7 +56,7 @@ connections, message queuing, and retry logic so the skill only needs to format 
    - Long messages: split at 4096 characters (Telegram message limit)
    - Markdown: Telegram supports a subset -- use *bold*, _italic_, `code`, ```pre```
 
-3. **Phase 3 - Send Message**: Deliver via the gateway
+3. **Phase 3 - Send Message**: Deliver via Bot API
    - Tool: `sc_send_message` with parameters:
      - `channel`: "telegram" (default)
      - `text`: formatted message string
@@ -79,10 +78,9 @@ connections, message queuing, and retry logic so the skill only needs to format 
 </Steps>
 
 <Tool_Usage>
-- `sc_gateway_status` -- Check OpenClaw gateway connection health (no params)
+- `sc_telegram_status` -- Check Telegram Bot API connection health (no params)
 - `sc_send_message` -- Send text to Telegram; params: `channel` (string, default "telegram"), `text` (string, the message content)
 - `sc_route_command` -- Simulate an incoming command through the channel router; params: `text` (string, command like "/status"), `channel` (string, default "claude-code")
-- `sc_gateway_request` -- Send raw JSON-RPC to gateway for advanced operations; params: `method` (string, e.g. "sessions.list"), `params` (optional object)
 - `sc_screenshot` -- Capture screen for sending; params: `window` (optional string), `format` (optional "png"|"jpg")
 - `sc_notify` -- Fallback macOS notification if Telegram is unreachable; params: `title` (string), `message` (string)
 </Tool_Usage>
@@ -90,8 +88,8 @@ connections, message queuing, and retry logic so the skill only needs to format 
 <Examples>
 <Good>
 User: "Send me a screenshot on Telegram"
-Action: 1) sc_gateway_status to verify connection, 2) sc_screenshot to capture screen, 3) sc_send_message with channel="telegram" and text="Screenshot captured: [path]" plus image data
-Why good: Checks gateway first, captures fresh screenshot, sends with context
+Action: 1) sc_telegram_status to verify connection, 2) sc_screenshot to capture screen, 3) sc_send_message with channel="telegram" and text="Screenshot captured: [path]" plus image data
+Why good: Checks bot status first, captures fresh screenshot, sends with context
 </Good>
 
 <Good>
@@ -108,8 +106,8 @@ Why good: Uses the command router to simulate an incoming Telegram command, retu
 
 <Bad>
 User: "Send a message to Telegram"
-Action: Immediately call sc_send_message without checking sc_gateway_status first
-Why bad: Gateway may be offline; always verify connectivity before attempting to send
+Action: Immediately call sc_send_message without checking sc_telegram_status first
+Why bad: Bot API may be unreachable; always verify connectivity before attempting to send
 </Bad>
 
 <Bad>
@@ -120,15 +118,14 @@ Why bad: sc_notify sends a local macOS notification, not a Telegram message. "Ph
 </Examples>
 
 <Escalation_And_Stop_Conditions>
-- **Stop** if gateway is unreachable after 2 connection attempts -- inform user with: "OpenClaw gateway is not running. Start it with `superclaw daemon start` or check ~/superclaw/superclaw.json"
+- **Stop** if Bot API is unreachable after 2 connection attempts -- inform user with: "Telegram bot not configured. Check bot token and chat ID in ~/superclaw/superclaw.json"
 - **Stop** if Telegram channel is not configured -- inform user: "Telegram channel not configured. Run `superclaw setup telegram` to connect your bot"
-- **Escalate** if messages are sending but not arriving -- suggest checking Telegram bot token and chat ID in gateway config
-- **Escalate** if gateway connects but sc_send_message returns persistent errors -- may indicate an OpenClaw version mismatch
+- **Escalate** if messages are sending but not arriving -- suggest checking Telegram bot token and chat ID in config
 - **Fallback** to sc_notify (macOS notification) if all remote delivery fails and user needs immediate notification
 </Escalation_And_Stop_Conditions>
 
 <Final_Checklist>
-- [ ] Gateway connection verified via sc_gateway_status before any send
+- [ ] Bot API connection verified via sc_telegram_status before any send
 - [ ] Message properly formatted (within 4096 char limit, correct markdown subset)
 - [ ] sc_send_message called with correct channel ("telegram") and text
 - [ ] Delivery confirmation received (non-error response)
@@ -141,38 +138,33 @@ Why bad: sc_notify sends a local macOS notification, not a Telegram message. "Ph
 <Advanced>
 ## Configuration
 
-The OpenClaw gateway configuration lives in `~/superclaw/superclaw.json`:
+The Telegram configuration lives in `~/superclaw/superclaw.json`:
 
-```yaml
-gateway:
-  host: localhost
-  port: 18789
-  autoConnect: true
-
-channels:
-  telegram:
-    enabled: true
-    botToken: "YOUR_BOT_TOKEN"
-    chatId: "YOUR_CHAT_ID"
-    allowFrom:
-      - "your_telegram_username"
-    parseMode: "Markdown"
+```json
+{
+  "telegram": {
+    "enabled": true,
+    "bot_token": "YOUR_BOT_TOKEN",
+    "chat_id": "YOUR_CHAT_ID",
+    "parse_mode": "Markdown"
+  }
+}
 ```
 
 Key settings:
-- `allowFrom`: Whitelist of Telegram usernames that can send commands (security)
-- `parseMode`: "Markdown" or "HTML" for message formatting
-- `chatId`: Your Telegram chat ID (get it from @userinfobot)
+- `parse_mode`: "Markdown" or "HTML" for message formatting
+- `chat_id`: Your Telegram chat ID (get it from @userinfobot)
+- `bot_token`: Your bot token from @BotFather
 
 ## Troubleshooting
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| "Gateway not connected" | Daemon not running | Run `superclaw daemon start` |
+| "Bot not configured" | Missing bot token or chat ID | Add telegram config to superclaw.json |
 | "Send failed: channel not found" | Telegram not configured | Add telegram config to superclaw.json |
-| Messages send but not received | Wrong chatId or botToken | Verify with `curl https://api.telegram.org/bot<TOKEN>/getMe` |
-| "allowFrom rejected" | Username not whitelisted | Add username to allowFrom array |
-| Gateway connects then drops | Port conflict or firewall | Check port 18789 is free, no VPN blocking localhost |
+| Messages send but not received | Wrong chat_id or bot_token | Verify with `curl https://api.telegram.org/bot<TOKEN>/getMe` |
+| "Telegram 401 Unauthorized" | Invalid bot token | Re-check token from @BotFather |
+| "Telegram 400 Bad Request" | Invalid chat ID | Send /start to @userinfobot |
 
 ## Common Patterns
 
@@ -186,9 +178,9 @@ Key settings:
 
 **Periodic status update:**
 ```
-1. sc_cron_add(name="status-update", schedule="0 */2 * * *", command="/status")
-2. Cron triggers /status command via channel router
-3. Router formats and sends to Telegram automatically
+1. Set up system crontab or node-cron to run status checks
+2. Format status report
+3. Send to Telegram via sc_send_message
 ```
 
 **Screenshot sharing:**

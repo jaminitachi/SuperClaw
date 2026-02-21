@@ -15,7 +15,7 @@ async function main() {
   try { input = JSON.parse(raw); } catch { console.log(JSON.stringify({ continue: true })); return; }
 
   const toolName = input?.tool_name ?? input?.toolName ?? '';
-  const result = input?.tool_result ?? input?.result ?? '';
+  const result = input?.tool_response ?? input?.tool_result ?? input?.result ?? '';
 
   // Check for common failure patterns in SC tools
   if (toolName.startsWith('sc_') && typeof result === 'string') {
@@ -24,7 +24,7 @@ async function main() {
         continue: true,
         hookSpecificOutput: {
           hookEventName: 'PostToolUse',
-          additionalContext: 'SuperClaw: Gateway connection failed. Run sc_gateway_status to check. Consider using gateway-debugger agent.',
+          additionalContext: 'SuperClaw: Gateway connection failed. Run sc_status to check. Consider using gateway-debugger agent.',
         },
       }));
       return;
@@ -48,15 +48,15 @@ async function main() {
     // Check if ultrawork mode is active
     const ultraworkStatePath = path.join(os.homedir(), 'superclaw', 'data', 'ultrawork-state.json');
     let ultraworkActive = false;
+    let state = null;
     try {
       if (fs.existsSync(ultraworkStatePath)) {
-        const state = JSON.parse(fs.readFileSync(ultraworkStatePath, 'utf-8'));
+        state = JSON.parse(fs.readFileSync(ultraworkStatePath, 'utf-8'));
         ultraworkActive = state.active === true;
       }
     } catch {}
 
-    if (ultraworkActive) {
-      const state = JSON.parse(fs.readFileSync(ultraworkStatePath, 'utf-8'));
+    if (ultraworkActive && state) {
       console.log(JSON.stringify({
         continue: true,
         hookSpecificOutput: {

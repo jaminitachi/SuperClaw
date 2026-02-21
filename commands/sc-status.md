@@ -14,7 +14,7 @@ Triggered by: `/sc-status`, "superclaw status", "system status", "is everything 
 
 ## Steps
 
-1. **Check gateway connectivity**: Call `sc_gateway_status` to verify the OpenClaw gateway is reachable. Record connection status and latency.
+1. **Check Telegram Bot API**: Call `sc_telegram_status` to verify the Telegram Bot API is reachable. Record connection status and bot information.
 
 2. **Check memory database**: Call `sc_memory_stats` to get entity count and database size. If it returns an error, report memory as unavailable.
 
@@ -40,10 +40,9 @@ Triggered by: `/sc-status`, "superclaw status", "system status", "is everything 
 
 | Component   | Status          | Details                   |
 |-------------|-----------------|---------------------------|
-| Gateway     | [OK/ERROR]      | [latency or error message] |
+| Telegram    | [OK/ERROR]      | [bot username or error]    |
 | Memory DB   | [OK/ERROR]      | [entity count, KB size]    |
 | Peekaboo    | [Found/Missing] | [version or install cmd]   |
-| Telegram    | [On/Off/Error]  | [bot name or "not configured"] |
 | Heartbeat   | [Active/Idle]   | [last run timestamp]       |
 | Cron Jobs   | [N active]      | [next scheduled run]       |
 | MCP Bridges | [OK/Missing]    | [which files present]      |
@@ -53,7 +52,7 @@ Triggered by: `/sc-status`, "superclaw status", "system status", "is everything 
 
 ## Error Handling
 
-- If the gateway is disconnected, still show all other component statuses
+- If the Telegram Bot API is unreachable, still show all other component statuses
 - If superclaw.json does not exist, report "Config: NOT FOUND -- run /sc-setup"
 - If any check throws an exception, report that component as "ERROR" with the message
 - Never fail the entire dashboard because one component is down

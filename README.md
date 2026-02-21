@@ -1,6 +1,6 @@
 # SuperClaw
 
-OpenClaw + Claude Code integration plugin. Mac automation, Telegram remote control, persistent memory with knowledge graph, heartbeat monitoring, research workflows, composable pipelines.
+Claude Code AI plugin. Mac automation, Telegram remote control, persistent memory with knowledge graph, heartbeat monitoring, research workflows, composable pipelines.
 
 ## Overview
 
@@ -13,7 +13,7 @@ SuperClaw extends Claude Code with agentic Mac control, proactive system monitor
 - 31 MCP tools across 3 servers (bridge, peekaboo, memory)
 - 9 lifecycle hooks for keyword detection, tool enforcement, verification
 - Persistent SQLite memory with FTS5 full-text search and knowledge graph
-- Bidirectional sync with OMC notepad/project-memory
+- Persistent cross-session memory with knowledge graph
 
 ## Features
 
@@ -27,13 +27,13 @@ SuperClaw extends Claude Code with agentic Mac control, proactive system monitor
 ### Telegram Remote Control
 - Send messages to phone from Claude
 - Receive commands from Telegram
-- Bidirectional gateway on port 18789
+- Direct Telegram Bot API integration via TelegramPoller
 
 ### Persistent Memory
 - SQLite database with FTS5 full-text search
 - Knowledge graph with entity/relationship tracking
 - Conversation logging with semantic search
-- Syncs with OMC notepad and project-memory
+- Persistent memory with FTS5 search and knowledge graph
 
 ### Heartbeat Monitoring
 - System health checks (CPU, memory, disk)
@@ -85,25 +85,26 @@ claude --plugin-dir ~/superclaw
 ```
 
 That's it. The setup wizard handles everything:
-1. Installs OpenClaw gateway and starts it
-2. Installs Peekaboo via Homebrew (Mac automation)
-3. Installs SoX (audio processing for TTS)
-4. Installs Node.js dependencies and builds 3 MCP servers
-5. Asks for Telegram bot token + chat ID (optional, interactive)
-6. Creates `superclaw.json` with all settings
-7. Creates data directories
+1. Installs Peekaboo via Homebrew (Mac automation)
+2. Installs SoX (audio processing for TTS)
+3. Installs Node.js dependencies and builds 3 MCP servers
+4. Asks for Telegram bot token + chat ID (optional, interactive)
+5. Creates `superclaw.json` with all settings
+6. Creates data directories
 
 ## Architecture
 
 ```
-[Telegram] → [OpenClaw Gateway :18789] ←WebSocket→ [SuperClaw Bridge]
-                                                           ↓
-                                                    [Claude Code Plugin]
-                                                    ├── 3 MCP Servers (31 tools)
-                                                    ├── 13 Skills
-                                                    ├── 39 Agents (3 tiers)
-                                                    ├── 9 Hooks
-                                                    └── SQLite Memory + Knowledge Graph
+[Telegram Bot API] ←→ [SuperClaw Bridge (TelegramPoller)]
+                              ↓
+                       [Claude Code Plugin]
+                       ├── MCP Servers (3)
+                       ├── Skills, Agents, Hooks
+                       └── SQLite Memory
+                              ↓
+                       [Mac Control Layer]
+                       ├── Peekaboo
+                       └── osascript
 ```
 
 **Data Flow:**
@@ -111,9 +112,9 @@ That's it. The setup wizard handles everything:
 2. UserPromptSubmit hook detects "send to phone" keyword
 3. telegram-control skill activates
 4. Delegates to mac-control agent (sonnet tier)
-5. Agent calls sc-bridge MCP tool `send_telegram_message`
-6. Bridge forwards to OpenClaw gateway via WebSocket
-7. Gateway delivers to Telegram
+5. Agent calls sc-bridge MCP tool `sc_telegram_send`
+6. Bridge sends message via Telegram Bot API
+7. Message delivered to Telegram
 8. Memory system logs interaction
 
 ## Agent Domains
@@ -124,7 +125,7 @@ That's it. The setup wizard handles everything:
 | **Memory/Knowledge** | memory-curator, memory-curator-low, memory-curator-high | sonnet, haiku, opus | Knowledge graph updates, semantic search, relationship extraction |
 | **Pipelines** | pipeline-builder, pipeline-builder-high, workflow-monitor | sonnet, opus, haiku | Workflow design, multi-step automation, monitoring |
 | **System Health** | heartbeat-mgr, system-monitor, system-monitor-high, cron-mgr | haiku, sonnet, opus | Proactive monitoring, alerting, cron management |
-| **Gateway** | gateway-debugger | sonnet | OpenClaw connection diagnostics |
+| **Telegram** | telegram-debugger | sonnet | Telegram Bot API diagnostics |
 | **Research** | paper-reader, literature-reviewer, experiment-tracker, research-assistant, research-code-reviewer | sonnet, opus, haiku | Academic workflows, data analysis, experiment logging |
 | **Infrastructure** | data-analyst, sc-verifier, setup-validator | sonnet, haiku | Data analysis, verification, installation validation |
 | **Developer Tools** | sc-architect, sc-architect-low, sc-frontend, sc-code-reviewer, sc-code-reviewer-low, sc-debugger, sc-debugger-high, sc-test-engineer, sc-security-reviewer, sc-security-reviewer-low, sc-performance, sc-performance-high | opus, sonnet, haiku | Architecture analysis, frontend design, code review, debugging, testing, security audit, performance profiling |
@@ -155,7 +156,7 @@ All skills are invoked via `/superclaw:skill-name` or auto-detected via keyword 
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `/sc-status` | System health dashboard | Shows gateway, memory, heartbeat status |
+| `/sc-status` | System health dashboard | Shows Telegram, memory, heartbeat status |
 | `/sc-screenshot` | Quick screenshot via Peekaboo | Captures screen and analyzes content |
 | `/sc-memory <query>` | Search memory database | `/sc-memory "API design decisions"` |
 | `/sc-heartbeat` | Run health check now | Executes all collectors and reports |
@@ -163,10 +164,10 @@ All skills are invoked via `/superclaw:skill-name` or auto-detected via keyword 
 ## MCP Tools (31 Total)
 
 ### sc-bridge (8 tools)
-- `gateway_status` - Check OpenClaw connection
-- `send_telegram_message` - Send to Telegram
-- `get_active_sessions` - List gateway sessions
-- `call_acp_method` - Direct ACP protocol calls
+- `sc_status` - Check SuperClaw system status
+- `sc_telegram_send` - Send message to Telegram
+- `sc_telegram_inbox` - Fetch pending Telegram messages
+- `sc_telegram_status` - Check Telegram Bot API connection
 - `list_cron_jobs` - View scheduled tasks
 - `add_cron_job` - Schedule new job
 - `remove_cron_job` - Delete job
@@ -205,13 +206,8 @@ Config file: `~/superclaw/superclaw.json`
 
 ```json
 {
-  "gateway": {
-    "host": "127.0.0.1",
-    "port": 18789,
-    "token": "your-gateway-token",
-    "reconnect": true
-  },
   "telegram": {
+    "botToken": "your-bot-token",
     "allowFrom": ["your-chat-id"],
     "defaultChatId": "your-chat-id"
   },
@@ -223,8 +219,7 @@ Config file: `~/superclaw/superclaw.json`
     "collectors": ["system", "process", "github", "calendar"]
   },
   "memory": {
-    "dbPath": "~/superclaw/memory.db",
-    "syncWithOMC": true
+    "dbPath": "~/superclaw/memory.db"
   }
 }
 ```
@@ -233,8 +228,7 @@ Created automatically by `/superclaw:setup`.
 
 ## Security
 
-- **Gateway:** Loopback only (127.0.0.1), token authentication
-- **Telegram:** `allowFrom` whitelist for authorized chat IDs
+- **Telegram:** `allowFrom` whitelist for authorized chat IDs, bot token authentication
 - **Config:** 0600 permissions on token files
 - **Shell Safety:** No user input in shell commands, all paths validated
 - **MCP Isolation:** Each server runs in separate process
@@ -260,13 +254,13 @@ npm run typecheck
 
 ## Troubleshooting
 
-**Gateway connection failed:**
+**Telegram Bot API connection failed:**
 ```bash
-# Check OpenClaw is running
-curl http://127.0.0.1:18789/health
+# Verify bot token in config
+cat ~/superclaw/superclaw.json | grep botToken
 
-# Verify token in config
-cat ~/superclaw/superclaw.json | grep token
+# Test bot token manually
+curl https://api.telegram.org/bot<YOUR_TOKEN>/getMe
 ```
 
 **Peekaboo not found:**

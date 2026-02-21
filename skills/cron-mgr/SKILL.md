@@ -1,11 +1,11 @@
 ---
 name: cron-mgr
-description: Manage scheduled tasks via OpenClaw cron system
+description: Manage scheduled tasks via system crontab / node-cron
 allowed-tools: Read, Bash, Grep, Glob
 ---
 
 <Purpose>
-Cron Manager provides complete lifecycle management for scheduled tasks through the OpenClaw cron system. It handles creating, listing, modifying, and deleting cron jobs with natural language schedule parsing, cron expression generation, validation, and failure alerting. This is the single interface for all time-based automation in SuperClaw.
+Cron Manager provides complete lifecycle management for scheduled tasks through system crontab or node-cron. It handles creating, listing, modifying, and deleting cron jobs with natural language schedule parsing, cron expression generation, validation, and failure alerting. This is the single interface for all time-based automation in SuperClaw.
 </Purpose>
 
 <Use_When>
@@ -25,17 +25,17 @@ Cron Manager provides complete lifecycle management for scheduled tasks through 
 </Do_Not_Use_When>
 
 <Why_This_Exists>
-Scheduling is fundamental to automation but cron expressions are notoriously hard to write correctly. Users think in natural language ("every weekday at 8am") but cron requires cryptic syntax ("0 8 * * 1-5"). Cron Manager bridges this gap by parsing natural language into validated cron expressions, managing them through the OpenClaw gateway, and providing monitoring for failures. Without it, every scheduling task requires manual cron syntax lookup and gateway API calls.
+Scheduling is fundamental to automation but cron expressions are notoriously hard to write correctly. Users think in natural language ("every weekday at 8am") but cron requires cryptic syntax ("0 8 * * 1-5"). Cron Manager bridges this gap by parsing natural language into validated cron expressions and managing them through system crontab. Without it, every scheduling task requires manual cron syntax lookup.
 </Why_This_Exists>
 
 <Execution_Policy>
 - Always parse natural language schedules into cron expressions before registering
-- Validate every cron expression before submitting to the gateway
+- Validate every cron expression before submitting to system crontab
 - Show the user the interpreted schedule in human-readable form for confirmation
 - List existing jobs before adding to avoid duplicates
-- Set up failure alerting for all production cron jobs
 - Use timezone-aware scheduling when the user specifies a timezone
 - Default timezone is the system local timezone unless specified otherwise
+- Note: cron jobs are managed via system crontab (use `crontab -l` to list, `crontab -e` to edit)
 </Execution_Policy>
 
 <Steps>
@@ -80,42 +80,27 @@ Scheduling is fundamental to automation but cron expressions are notoriously har
    - No contradictory fields (e.g., day 31 with month 2)
    - Step values divide evenly into the range
 
-4. **Check for duplicates**: List existing cron jobs via `sc_cron_list` and check if a job with the same name or a very similar schedule already exists. Warn the user if so.
+4. **Check for duplicates**: List existing cron jobs via `crontab -l` and check if a job with a very similar schedule already exists. Warn the user if so.
 
-5. **Register via sc_cron_add**: Submit the validated job to the OpenClaw cron system:
-   ```
-   sc_cron_add({
-     name: "job-name",
-     expression: "0 8 * * 1-5",
-     command: "the.command.to.run",
-     description: "Human-readable description",
-     timezone: "Asia/Seoul"
-   })
+5. **Register via system crontab**: Add the validated job to system crontab:
+   ```bash
+   # Edit crontab
+   crontab -l > /tmp/crontab.txt
+   echo "0 8 * * 1-5 /path/to/command # job-name" >> /tmp/crontab.txt
+   crontab /tmp/crontab.txt
    ```
 
-6. **Verify registration**: Call `sc_cron_list` after adding to confirm the job appears in the registered jobs list. If it does not appear, report the error.
+6. **Verify registration**: Call `crontab -l` after adding to confirm the job appears in the crontab. If it does not appear, report the error.
 
-7. **Set up failure alerting**: For important jobs, configure an alert that fires if the job fails:
-   ```
-   sc_gateway_request({
-     method: "cron.alert",
-     params: { job_name: "job-name", alert_channel: "telegram", on: "failure" }
-   })
-   ```
-
-8. **Report to user**: Show the user:
+7. **Report to user**: Show the user:
    - Job name
    - Cron expression
    - Human-readable schedule interpretation
    - Next 3 scheduled run times
-   - Alert configuration (if set)
 </Steps>
 
 <Tool_Usage>
-- `sc_cron_list` -- List all registered cron jobs with their expressions, last run time, and status. Use before adding to check for duplicates.
-- `sc_cron_add` -- Register a new cron job with name, expression, command, and optional timezone. Returns the job ID on success.
-- `sc_gateway_request` -- Manage cron jobs via gateway API. Methods: `cron.delete` (remove job), `cron.pause` (pause job), `cron.resume` (resume job), `cron.alert` (configure alerts), `cron.history` (view run history).
-- `Bash` -- Calculate next run times, validate expressions with external tools if needed.
+- `Bash` -- Manage system crontab via `crontab -l`, `crontab -e`, `crontab <file>`. Calculate next run times, validate expressions.
 - `Read` -- Read pipeline definitions that reference cron schedules.
 - `Grep` -- Search for cron references across configuration files.
 </Tool_Usage>
@@ -125,9 +110,9 @@ Scheduling is fundamental to automation but cron expressions are notoriously har
 User says "schedule a heartbeat every 30 minutes":
 1. Parse: "every 30 minutes" -> `*/30 * * * *`
 2. Validate: expression is correct
-3. Check duplicates: no existing heartbeat cron
-4. Register: `sc_cron_add({ name: "heartbeat-30m", expression: "*/30 * * * *", command: "heartbeat.run" })`
-5. Verify: job appears in `sc_cron_list`
+3. Check duplicates: no existing heartbeat cron via `crontab -l`
+4. Register: Add `*/30 * * * * /path/to/heartbeat.sh # heartbeat-30m` to crontab
+5. Verify: job appears in `crontab -l`
 6. Report: "Heartbeat scheduled every 30 minutes. Next runs: 10:00, 10:30, 11:00"
 
 Why good: Clean natural language parsing, full validation cycle, clear confirmation.
@@ -135,13 +120,13 @@ Why good: Clean natural language parsing, full validation cycle, clear confirmat
 
 <Good>
 User says "show me all my scheduled jobs":
-1. Call `sc_cron_list`
-2. Format as table:
-   | Name | Schedule | Last Run | Status |
-   |------|----------|----------|--------|
-   | heartbeat-30m | Every 30 min | 2 min ago | OK |
-   | morning-brief | Weekdays 8am | 6 hours ago | OK |
-   | deploy-monitor | Every 5 min | 1 min ago | OK |
+1. Call `crontab -l`
+2. Parse output and format as table:
+   | Name | Schedule | Expression |
+   |------|----------|------------|
+   | heartbeat-30m | Every 30 min | */30 * * * * |
+   | morning-brief | Weekdays 8am | 0 8 * * 1-5 |
+   | deploy-monitor | Every 5 min | */5 * * * * |
 3. Show next scheduled run for each
 
 Why good: Clear, tabular output with all relevant information.
@@ -154,29 +139,27 @@ Why bad: "at 8am" is ambiguous -- could mean once or daily. Should clarify with 
 </Bad>
 
 <Bad>
-Agent registers a cron job but does not verify it appears in sc_cron_list afterward.
+Agent registers a cron job but does not verify it appears in `crontab -l` afterward.
 
-Why bad: Silent failure. The job might not have registered due to a gateway error. Always verify.
+Why bad: Silent failure. The job might not have been added due to a syntax error. Always verify.
 </Bad>
 </Examples>
 
 <Escalation_And_Stop_Conditions>
-- If the OpenClaw gateway is not connected, abort and suggest running setup
 - If a cron expression cannot be parsed from natural language, ask the user for clarification rather than guessing
-- If a duplicate job name exists, ask user whether to replace or rename
-- If sc_cron_add returns an error, report the specific error message to the user
+- If a duplicate job exists, ask user whether to replace or rename
+- If crontab modification fails, report the specific error message to the user
 - If the user's schedule is ambiguous (e.g., "at 8" -- 8am or 8pm?), ask for clarification
-- After 3 failed registration attempts, check gateway connectivity and escalate if the gateway is down
+- After 3 failed registration attempts, check crontab permissions and escalate
 - Stop if the user cancels or decides not to schedule
 </Escalation_And_Stop_Conditions>
 
 <Final_Checklist>
 - [ ] Schedule intent parsed correctly from natural language
 - [ ] Cron expression generated and validated
-- [ ] No duplicate jobs with the same name
-- [ ] Job registered via sc_cron_add
-- [ ] Registration verified via sc_cron_list
-- [ ] Failure alerting configured for important jobs
+- [ ] No duplicate jobs with the same schedule
+- [ ] Job added to system crontab
+- [ ] Registration verified via `crontab -l`
 - [ ] User shown human-readable schedule and next run times
 - [ ] Timezone handled correctly (default to local if unspecified)
 </Final_Checklist>
@@ -205,14 +188,13 @@ Why bad: Silent failure. The job might not have registered due to a gateway erro
 | `*/10 * * * *` | Every 10 minutes |
 | `0 0 * * 6,0` | Midnight on weekends |
 
-### OpenClaw Cron Integration
+### System Crontab Management
 
-OpenClaw's cron system extends standard cron with:
-- **Named jobs**: Each job has a unique name for management
-- **Run history**: Last N executions tracked with status
-- **Pause/resume**: Jobs can be paused without deletion
-- **Alert hooks**: Configurable alerts on failure, success, or both
-- **Timezone support**: Per-job timezone configuration
+System crontab provides standard scheduling with:
+- **Comments for names**: Use `# job-name` comments to identify jobs
+- **Standard cron syntax**: 5-field expressions (minute hour day month weekday)
+- **System-level scheduling**: Jobs run even when user is not logged in
+- **Timezone support**: Set `TZ` environment variable in crontab for specific timezones
 
 ### Timezone Handling
 
@@ -233,34 +215,37 @@ Common timezone shortcuts:
 
 ### Monitoring Cron Failures
 
-Set up a meta-cron job that checks for failed jobs:
-```
-sc_cron_add({
-  name: "cron-health-check",
-  expression: "0 */6 * * *",
-  command: "cron.health_check",
-  description: "Check for failed cron jobs every 6 hours"
-})
+Set up logging and monitoring for cron jobs:
+```bash
+# Add logging to crontab entries
+*/30 * * * * /path/to/script.sh >> /var/log/cron-heartbeat.log 2>&1
 ```
 
-This monitors all other jobs and sends a Telegram alert if any have failed in the last 6 hours.
+This captures stdout and stderr for debugging failed jobs.
 
 ### Modifying Existing Jobs
 
-To modify a job, delete and re-create:
+To modify a job, edit the crontab:
+```bash
+crontab -e  # Opens editor to modify cron entries
 ```
-sc_gateway_request({ method: "cron.delete", params: { name: "old-job" } })
-sc_cron_add({ name: "old-job", expression: "new-expression", command: "same-command" })
+
+Or programmatically:
+```bash
+crontab -l | sed '/old-job/d' | crontab -  # Remove old job
+crontab -l > /tmp/crontab.txt
+echo "0 9 * * 1-5 /path/to/cmd # old-job" >> /tmp/crontab.txt
+crontab /tmp/crontab.txt
 ```
 
 ### Troubleshooting
 
 | Issue | Resolution |
 |-------|-----------|
-| Job not running | Check `sc_cron_list` for status. Verify gateway is running. |
+| Job not running | Check `crontab -l` for status. Verify cron daemon is running. |
 | Wrong time execution | Check timezone configuration. Default is system local. |
-| Job runs but no effect | Verify the command string matches a valid gateway method. |
-| Duplicate job error | Use `sc_gateway_request({ method: "cron.delete" })` first. |
+| Job runs but no effect | Verify the command path is absolute and executable. |
+| Duplicate job error | Remove duplicate via `crontab -e` or programmatically. |
 | Expression parse error | Verify 5 fields present, values in range. Use the reference table above. |
-| Gateway not connected | Run setup skill to verify and restart gateway connection. |
+| Crontab not updating | Check permissions. May need `sudo` for system-wide crontab. |
 </Advanced>

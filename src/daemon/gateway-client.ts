@@ -1,6 +1,14 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
-import type { GatewayConfig } from '../config/schema.js';
+
+/** @deprecated This file is legacy OpenClaw gateway code. SuperClaw no longer depends on OpenClaw. */
+interface GatewayConfig {
+  url: string;
+  host: string;
+  port: number;
+  token: string;
+  reconnect: boolean;
+}
 
 export interface GatewayFrame {
   type: 'req' | 'res' | 'event';

@@ -2,7 +2,7 @@
 
 ## Agent Selection Guide
 
-When a task involves SuperClaw's domain, delegate to SuperClaw agents instead of generic OMC agents.
+When a task involves SuperClaw's domain, delegate to SuperClaw specialist agents.
 
 ### Routing Table
 
@@ -68,32 +68,23 @@ When a task involves SuperClaw's domain, delegate to SuperClaw agents instead of
 | Performance analysis | superclaw:sc-performance | sonnet | MEDIUM |
 | Complex performance | superclaw:sc-performance-high | opus | HIGH |
 
-### OMC Fallback Rules
+### Task Mapping for General Development
 
-When a task falls outside SuperClaw's domain (general software development without SC-specific integration):
+When a task falls outside SuperClaw's specialized domain, use these agent mappings:
 
-| Task | Fallback Agent | Model |
-|------|---------------|-------|
-| General code implementation | oh-my-claudecode:executor | sonnet |
-| Documentation writing | oh-my-claudecode:writer | haiku |
-| General planning | oh-my-claudecode:planner | opus |
-| General exploration | oh-my-claudecode:explore | haiku |
-| Critical analysis | oh-my-claudecode:critic | opus |
+| Task Type | SuperClaw Agent | Model |
+|-----------|----------------|-------|
+| General code implementation | superclaw:sc-atlas | sonnet |
+| Quick code changes | superclaw:sc-junior | haiku |
+| Documentation writing | superclaw:sc-junior | haiku |
+| Strategic planning | superclaw:sc-prometheus | opus |
+| Architecture analysis | superclaw:sc-architect | opus |
+| Quick exploration | superclaw:sc-architect-low | haiku |
+| Plan validation/critique | superclaw:sc-momus | sonnet |
 
-### Integration with OMC Modes
+### SuperClaw Execution Modes
 
-SuperClaw agents participate in OMC modes:
-- **autopilot**: Can include heartbeat setup in deployment phase
-- **ralph**: SuperClaw operations continue until verified
-- **ultrawork**: SC agents run in parallel with OMC agents
-- **ecomode**: SC agents follow tier routing (haiku first, escalate on failure)
-
-### Naming Collision Resolution
-
-| Term | SuperClaw Meaning | OMC Meaning |
-|------|-------------------|-------------|
-| "pipeline" | Data automation pipeline (morning-brief, deploy-monitor) | Agent chaining mode |
-| "memory" | SQLite knowledge graph (sc_memory_*) | Notepad/project-memory |
-| "skill" | Workflow template (SKILL.md) | Same |
-
-To disambiguate: "automation pipeline" = SC, "agent pipeline" = OMC. "SC memory" = SQLite, "notepad" = OMC.
+SuperClaw has its own ultrawork mode for parallel agent execution:
+- **ultrawork**: Multiple SC agents run concurrently on task pool
+- **orchestration**: sc-prometheus (planner) → sc-metis (coordinator) → sc-atlas/sc-junior (workers)
+- **verification**: All tasks verified by sc-verifier before completion

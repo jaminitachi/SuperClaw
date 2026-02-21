@@ -1,66 +1,46 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
 import type Database from 'better-sqlite3';
 
-const OPENCLAW_MEMORY = join(homedir(), '.openclaw', 'workspace', 'memory');
-
 export class MemorySync {
-  constructor(private db: Database.Database) {}
+  private externalMemoryPath: string | null;
 
-  syncFromOpenClaw(): number {
-    if (!existsSync(OPENCLAW_MEMORY)) return 0;
+  constructor(private db: Database.Database, externalMemoryPath?: string) {
+    this.externalMemoryPath = externalMemoryPath ?? null;
+  }
+
+  syncFromExternal(): number {
+    if (!this.externalMemoryPath || !existsSync(this.externalMemoryPath)) return 0;
 
     let imported = 0;
-    const files = readdirSync(OPENCLAW_MEMORY).filter((f) => f.endsWith('.md'));
+    const files = readdirSync(this.externalMemoryPath).filter((f) => f.endsWith('.md'));
 
     for (const file of files) {
-      const content = readFileSync(join(OPENCLAW_MEMORY, file), 'utf-8');
+      const content = readFileSync(join(this.externalMemoryPath, file), 'utf-8');
       if (!content.trim()) continue;
 
-      const date = file.replace('.md', '');
+      const subject = file.replace('.md', '');
       const existing = this.db.prepare(
         'SELECT id FROM knowledge WHERE category = ? AND subject = ?'
-      ).get('openclaw-daily', date);
+      ).get('external-sync', subject);
 
       if (!existing) {
         this.db.prepare(
           'INSERT INTO knowledge (category, subject, content, confidence, source) VALUES (?, ?, ?, ?, ?)'
-        ).run('openclaw-daily', date, content, 0.7, 'openclaw-sync');
+        ).run('external-sync', subject, content, 0.7, 'external-sync');
         imported++;
-      }
-    }
-
-    // Sync MEMORY.md
-    const memoryMd = join(homedir(), '.openclaw', 'workspace', 'MEMORY.md');
-    if (existsSync(memoryMd)) {
-      const content = readFileSync(memoryMd, 'utf-8');
-      if (content.trim()) {
-        const existing = this.db.prepare(
-          'SELECT id FROM knowledge WHERE category = ? AND subject = ?'
-        ).get('openclaw-longterm', 'MEMORY.md');
-
-        if (existing) {
-          this.db.prepare(
-            'UPDATE knowledge SET content = ?, updated_at = datetime("now") WHERE id = ?'
-          ).run(content, (existing as any).id);
-        } else {
-          this.db.prepare(
-            'INSERT INTO knowledge (category, subject, content, confidence, source) VALUES (?, ?, ?, ?, ?)'
-          ).run('openclaw-longterm', 'MEMORY.md', content, 0.9, 'openclaw-sync');
-          imported++;
-        }
       }
     }
 
     return imported;
   }
 
-  exportToOpenClaw(): void {
-    // Export high-confidence knowledge back to OpenClaw MEMORY.md
+  exportToExternal(): void {
+    if (!this.externalMemoryPath) return;
+
     const rows = this.db.prepare(
       'SELECT subject, content FROM knowledge WHERE confidence >= 0.8 AND source != ? ORDER BY updated_at DESC LIMIT 50'
-    ).all('openclaw-sync') as any[];
+    ).all('external-sync') as any[];
 
     if (rows.length === 0) return;
 
@@ -76,7 +56,7 @@ export class MemorySync {
       lines.push('');
     }
 
-    const outPath = join(OPENCLAW_MEMORY, 'superclaw-export.md');
+    const outPath = join(this.externalMemoryPath, 'superclaw-export.md');
     writeFileSync(outPath, lines.join('\n'));
   }
 }

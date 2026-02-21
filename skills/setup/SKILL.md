@@ -20,12 +20,12 @@ Setup is the complete installation and configuration wizard for SuperClaw. It sy
 <Do_Not_Use_When>
 - SuperClaw is already fully configured and working (use sc-status command instead)
 - User wants to configure a single component (direct them to the specific skill)
-- User is asking about OMC setup (use omc-setup skill instead)
+- User is asking about a specific component setup only (direct them to the specific skill)
 - The issue is not setup-related (use analyze skill for debugging)
 </Do_Not_Use_When>
 
 <Why_This_Exists>
-SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node.js, SQLite) and internal services (MCP bridge servers, Telegram bot, memory database). Getting all of these configured correctly is error-prone when done manually. Missing a single step (forgetting to build, wrong bot token, gateway not running) causes silent failures that are hard to diagnose. Setup automates the entire process into a single wizard that checks, configures, builds, and validates everything in the correct order.
+SuperClaw depends on multiple external systems (Peekaboo, Node.js, SQLite) and internal services (MCP bridge servers, Telegram bot, memory database). Getting all of these configured correctly is error-prone when done manually. Missing a single step (forgetting to build, wrong bot token) causes silent failures that are hard to diagnose. Setup automates the entire process into a single wizard that checks, configures, builds, and validates everything in the correct order.
 </Why_This_Exists>
 
 <Execution_Policy>
@@ -47,37 +47,16 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
    | Node.js | `node --version` | v18.0.0 | `brew install node` or `nvm install 18` |
    | npm | `npm --version` | v9.0.0 | Comes with Node.js |
    | TypeScript | `npx tsc --version` | v5.0.0 | `npm install -g typescript` |
-   | OpenClaw | `openclaw --version` or check process | Any | See OpenClaw docs |
    | Peekaboo | `which peekaboo` or `peekaboo --version` | Any | `brew install peekaboo` or build from source |
    | SQLite3 | `sqlite3 --version` | v3.0.0 | `brew install sqlite3` (usually pre-installed on macOS) |
    | better-sqlite3 | Check node_modules | v11.0.0 | `npm install` in superclaw root |
 
    For each missing prerequisite, display the install command and stop. Do not proceed with a partial setup.
 
-2. **Verify OpenClaw gateway**: Check that the OpenClaw gateway process is running and accepting connections.
-   ```bash
-   # Check if gateway process is running
-   pgrep -f "openclaw" || ps aux | grep openclaw
-
-   # Test WebSocket connectivity
-   # Gateway default: ws://localhost:18789
-   ```
-   Use `sc_gateway_status` to verify the connection. If the gateway is not running, provide start instructions:
-   ```bash
-   openclaw start
-   # or
-   openclaw gateway --port 18789
-   ```
-
-3. **Check/create superclaw.json config**: Look for existing configuration at ~/superclaw/superclaw.json. If it does not exist, create it from the template:
+2. **Check/create superclaw.json config**: Look for existing configuration at ~/superclaw/superclaw.json. If it does not exist, create it from the template:
    ```json
    {
      "version": "1.0.0",
-     "gateway": {
-       "url": "ws://localhost:18789",
-       "reconnect": true,
-       "reconnect_interval": 5000
-     },
      "telegram": {
        "enabled": false,
        "bot_token": "",
@@ -110,18 +89,18 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
    }
    ```
 
-4. **Install dependencies and build**: Run npm install and build the MCP server bridges.
+3. **Install dependencies and build**: Run npm install and build the MCP server bridges.
    ```bash
    cd ~/superclaw
    npm install
    npm run build
    ```
    Verify build output exists:
-   - `bridge/sc-bridge.cjs` -- OpenClaw gateway bridge
+   - `bridge/sc-bridge.cjs` -- Telegram + messaging bridge
    - `bridge/sc-peekaboo.cjs` -- Peekaboo (macOS automation) bridge
    - `bridge/sc-memory.cjs` -- Memory/knowledge graph bridge
 
-5. **Configure Telegram** (optional): Ask the user if they want Telegram integration.
+4. **Configure Telegram** (optional): Ask the user if they want Telegram integration.
    ```
    AskUserQuestion(
      question: "Do you want to set up Telegram integration for remote notifications?",
@@ -153,20 +132,11 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
 
    Save the token and chat ID to superclaw.json.
 
-6. **Test gateway connectivity**: Use the MCP bridge to verify the gateway connection works end-to-end.
-   ```
-   sc_gateway_status()
-   ```
-   Expected response: connected with latency information. If this fails:
-   - Check gateway is running (step 2)
-   - Check gateway URL in superclaw.json matches actual port
-   - Check firewall/network settings
+5. **Test each MCP server**: Verify each bridge server responds correctly.
 
-7. **Test each MCP server**: Verify each bridge server responds correctly.
-
-   **sc-bridge** (gateway):
+   **sc-bridge** (Telegram):
    ```
-   sc_gateway_status()  -- Should return { connected: true }
+   sc_telegram_status()  -- Should return { connected: true }
    ```
 
    **sc-memory** (knowledge):
@@ -184,7 +154,7 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
    - .mcp.json references correct paths
    - Required system services are running
 
-8. **Initialize memory database**: If ~/superclaw/data/memory.db does not exist or is empty, initialize it:
+6. **Initialize memory database**: If ~/superclaw/data/memory.db does not exist or is empty, initialize it:
    ```
    sc_memory_store({
      content: "SuperClaw initialized successfully",
@@ -195,7 +165,7 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
    ```
    Verify with `sc_memory_stats()`.
 
-9. **Create data directories**: Ensure all required data directories exist:
+7. **Create data directories**: Ensure all required data directories exist:
    ```bash
    mkdir -p ~/superclaw/data/heartbeats
    mkdir -p ~/superclaw/data/pipelines
@@ -203,13 +173,13 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
    mkdir -p ~/superclaw/data/skill_metrics
    ```
 
-10. **Run setup-validator agent**: Delegate final validation to a dedicated agent:
+8. **Run setup-validator agent**: Delegate final validation to a dedicated agent:
     ```
     Task(subagent_type="superclaw:setup-validator", model="haiku", prompt="
       Validate SuperClaw installation:
       1. Check all bridge files exist in ~/superclaw/bridge/
       2. Verify .mcp.json has all 3 server entries
-      3. Test sc_gateway_status returns connected
+      3. Test sc_telegram_status returns connected
       4. Test sc_memory_stats returns valid stats
       5. Check superclaw.json exists and is valid JSON
       6. Verify data directories exist
@@ -217,7 +187,7 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
     ")
     ```
 
-11. **Display status dashboard**: Show the final installation status:
+9. **Display status dashboard**: Show the final installation status:
     ```
     ============================================
      SuperClaw Setup Complete
@@ -226,7 +196,6 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
     | Component      | Status      | Details          |
     |----------------|-------------|------------------|
     | Node.js        | OK          | v22.0.0          |
-    | OpenClaw GW    | Connected   | ws://localhost:18789, 12ms |
     | sc-bridge      | OK          | Built, responding |
     | sc-memory      | OK          | 42 entities, 48KB |
     | sc-peekaboo    | OK          | Peekaboo found   |
@@ -242,7 +211,7 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
     ============================================
     ```
 
-12. **Log setup to memory**: Store setup completion for future reference:
+10. **Log setup to memory**: Store setup completion for future reference:
     ```
     sc_memory_store({
       content: "SuperClaw setup completed successfully. All components verified.",
@@ -255,7 +224,7 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
 
 <Tool_Usage>
 - `Bash` -- Run prerequisite checks (node --version, which peekaboo, etc.), build commands (npm install, npm run build), create directories.
-- `sc_gateway_status` -- Test OpenClaw gateway connectivity and latency.
+- `sc_telegram_status` -- Test Telegram Bot API connectivity and status.
 - `sc_memory_stats` -- Verify memory database is initialized and responding.
 - `sc_memory_store` -- Initialize memory with setup event, store configuration history.
 - `sc_screenshot` -- Test Peekaboo integration by taking a test screenshot.
@@ -271,15 +240,14 @@ SuperClaw depends on multiple external systems (OpenClaw gateway, Peekaboo, Node
 <Good>
 Fresh installation on a new machine:
 1. Check prerequisites: Node.js v22 OK, npm v10 OK, Peekaboo found, SQLite3 OK
-2. OpenClaw gateway: NOT RUNNING -> show start command, user starts it -> Connected
-3. Config: superclaw.json not found -> create from template
-4. Build: npm install -> 168 packages, npm run build -> 3 bridge files generated
-5. Telegram: User provides bot token and chat ID -> saved to config
-6. Test gateway: sc_gateway_status -> { connected: true, latency: 8ms }
-7. Test memory: sc_memory_stats -> { entities: 0, size_kb: 49 }
-8. Test Peekaboo: sc_screenshot -> /tmp/screenshot-123.png saved
-9. Validator: all 6 checks passed
-10. Dashboard displayed with all green status
+2. Config: superclaw.json not found -> create from template
+3. Build: npm install -> 168 packages, npm run build -> 3 bridge files generated
+4. Telegram: User provides bot token and chat ID -> saved to config
+5. Test Telegram: sc_telegram_status -> { connected: true }
+6. Test memory: sc_memory_stats -> { entities: 0, size_kb: 49 }
+7. Test Peekaboo: sc_screenshot -> /tmp/screenshot-123.png saved
+8. Validator: all 6 checks passed
+9. Dashboard displayed with all green status
 
 Why good: Every step checked, clear error messages, interactive config, comprehensive verification.
 </Good>
@@ -287,12 +255,11 @@ Why good: Every step checked, clear error messages, interactive config, comprehe
 <Good>
 Reconfiguration after Telegram token change:
 1. Prerequisites: all OK (skip detailed check since already installed)
-2. Gateway: already running and connected
-3. Config: existing superclaw.json found, read current values
-4. User provides new bot token via AskUserQuestion
-5. Update superclaw.json with new token
-6. Test: sc_send_message("Test from SuperClaw") -> delivered
-7. Dashboard: Telegram status updated to new bot
+2. Config: existing superclaw.json found, read current values
+3. User provides new bot token via AskUserQuestion
+4. Update superclaw.json with new token
+5. Test: sc_send_message("Test from SuperClaw") -> delivered
+6. Dashboard: Telegram status updated to new bot
 
 Why good: Minimal disruption, only reconfigures what changed, verifies the change works.
 </Good>
@@ -312,7 +279,6 @@ Why bad: Build step is critical. Stale or missing builds cause phantom failures 
 
 <Escalation_And_Stop_Conditions>
 - If any prerequisite is missing, STOP and show install instructions. Do not proceed with partial setup.
-- If the OpenClaw gateway cannot be started after 3 attempts, escalate to user with manual start instructions
 - If npm install fails, check for Node.js version compatibility and suggest `nvm use 18` or higher
 - If npm run build fails, show the build error output and suggest checking tsconfig.json
 - If Telegram test message fails, verify bot token format and chat ID. Suggest the user check @BotFather.
@@ -322,13 +288,12 @@ Why bad: Build step is critical. Stale or missing builds cause phantom failures 
 </Escalation_And_Stop_Conditions>
 
 <Final_Checklist>
-- [ ] All prerequisites met (Node.js, npm, OpenClaw, Peekaboo, SQLite3)
-- [ ] OpenClaw gateway running and connected
+- [ ] All prerequisites met (Node.js, npm, Peekaboo, SQLite3)
 - [ ] superclaw.json configuration file exists and is valid
 - [ ] npm install completed without errors
 - [ ] npm run build completed, all 3 bridge files exist
 - [ ] Telegram configured (or explicitly skipped by user)
-- [ ] Gateway connectivity test passed
+- [ ] Telegram connectivity test passed
 - [ ] Each MCP server tested individually
 - [ ] Memory database initialized and responding
 - [ ] All data directories created
@@ -345,7 +310,6 @@ Why bad: Build step is critical. Stale or missing builds cause phantom failures 
 | Node.js >= 18 | Runtime for MCP bridges | Yes | `node -v` | `brew install node` / `nvm install 18` |
 | npm >= 9 | Package manager | Yes | `npm -v` | Bundled with Node.js |
 | TypeScript >= 5 | Build system | Yes | `npx tsc -v` | `npm i -g typescript` |
-| OpenClaw | Gateway server | Yes | `openclaw -v` / process check | See OpenClaw docs |
 | Peekaboo | macOS automation | Yes (macOS) | `which peekaboo` | `brew install peekaboo` |
 | SQLite3 | Memory database engine | Yes | `sqlite3 --version` | Pre-installed on macOS |
 | better-sqlite3 | Node.js SQLite binding | Yes | Check node_modules | `npm install` |
@@ -356,12 +320,6 @@ Why bad: Build step is critical. Stale or missing builds cause phantom failures 
 ```json
 {
   "version": "1.0.0",
-  "gateway": {
-    "url": "ws://localhost:18789",
-    "reconnect": true,
-    "reconnect_interval": 5000,
-    "timeout": 30000
-  },
   "telegram": {
     "enabled": false,
     "bot_token": "",
@@ -405,15 +363,13 @@ If the wizard fails, here is the manual process:
 1. `cd ~/superclaw && npm install`
 2. `npm run build`
 3. Copy the config template above to `superclaw.json` and fill in values
-4. Start OpenClaw gateway: `openclaw start`
-5. Test: Open Claude Code in the superclaw directory, try `sc_gateway_status`
+4. Test: Open Claude Code in the superclaw directory, try `sc_telegram_status`
 
 ## Troubleshooting
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | "Cannot find module sc-bridge.cjs" | Build not run | `npm run build` |
-| "ECONNREFUSED ws://localhost:18789" | Gateway not running | `openclaw start` |
 | "SQLITE_CANTOPEN" | Missing data directory | `mkdir -p data` |
 | "Telegram 401 Unauthorized" | Invalid bot token | Re-check token from @BotFather |
 | "Telegram 400 Bad Request" | Invalid chat ID | Send /start to @userinfobot |
@@ -426,9 +382,9 @@ If the wizard fails, here is the manual process:
 
 To completely remove SuperClaw:
 ```bash
-# Remove cron jobs
-sc_cron_list  # note all job names
-# Delete each via sc_gateway_request({ method: "cron.delete", params: { name: "..." } })
+# Remove cron jobs (if using system crontab)
+crontab -l  # note all SuperClaw jobs
+crontab -e  # remove SuperClaw entries
 
 # Remove files
 rm -rf ~/superclaw/node_modules

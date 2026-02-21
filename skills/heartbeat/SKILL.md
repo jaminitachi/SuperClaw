@@ -168,21 +168,17 @@ they are away from the terminal. It provides the "ops awareness" that solo devel
    - Enables "show me CPU trend for the last week" queries
 
 7. **Phase 7 - Schedule Next Run** (if periodic monitoring requested):
-   - Tool: `sc_cron_add` with params:
-     - `name`: "heartbeat" or user-specified name
-     - `schedule`: cron expression (e.g., "*/30 * * * *" for every 30 minutes)
-     - `command`: "/run heartbeat" (routes through channel router)
-   - Tool: `sc_cron_list` to verify the job was registered
+   - Add to system crontab with the cron expression (e.g., "*/30 * * * *" for every 30 minutes)
+   - Verify the job was added via `crontab -l`
 </Steps>
 
 <Tool_Usage>
-**Gateway & Messaging (2 tools):**
-- `sc_gateway_status` -- Check if OpenClaw gateway is running before attempting Telegram alerts; no params
+**Messaging (2 tools):**
+- `sc_telegram_status` -- Check if Telegram bot is configured before attempting alerts; no params
 - `sc_send_message` -- Send heartbeat report or alert to Telegram; params: `channel` (string, "telegram"), `text` (string, formatted report/alert)
 
-**Scheduling (2 tools):**
-- `sc_cron_add` -- Schedule periodic heartbeat runs; params: `name` (string), `schedule` (string, cron expression), `command` (string)
-- `sc_cron_list` -- List active cron jobs to verify heartbeat schedule; no params
+**Scheduling:**
+- `Bash` -- Manage system crontab via `crontab -l`, `crontab -e`, `crontab <file>` for scheduling periodic heartbeat runs
 
 **System Data (via Bash):**
 - `top -l 1 -s 0 | head -12` -- CPU and memory usage snapshot
@@ -211,7 +207,7 @@ Why good: Comprehensive check with all collectors, parallel execution for speed,
 
 <Good>
 User: "Set up heartbeat every 30 minutes"
-Action: 1) Run initial heartbeat to verify all collectors work, 2) sc_cron_add(name="heartbeat", schedule="*/30 * * * *", command="/run heartbeat"), 3) sc_cron_list to confirm registration, 4) Report schedule to user
+Action: 1) Run initial heartbeat to verify all collectors work, 2) Add `*/30 * * * * /path/to/heartbeat.sh` to crontab, 3) Verify via `crontab -l`, 4) Report schedule to user
 Why good: Validates collectors before scheduling, confirms cron registration, informs user
 </Good>
 
@@ -242,13 +238,13 @@ Why bad: Too frequent. Minimum recommended interval is 5 minutes. Every 15-30 mi
 
 <Escalation_And_Stop_Conditions>
 - **Stop** if all collectors fail -- system may be in a broken state, inform user to check manually
-- **Stop** if sc_cron_add fails repeatedly -- OpenClaw cron subsystem may not be running
+- **Stop** if crontab modification fails repeatedly -- check permissions
 - **Escalate** if critical alerts persist across 3+ consecutive heartbeats -- problem is not self-resolving
 - **Escalate** if disk usage is above 95% -- immediate user action required
 - **Escalate** if GitHub CI has been failing for more than 24 hours -- may indicate a broken main branch
 - **Warn** if Sentry collector fails with auth error -- token may have expired
 - **Warn** if Calendar collector returns permission error -- Automation permission needed for Calendar.app
-- **Fallback** to sc_notify (macOS notification) if Telegram gateway is unreachable for alerts
+- **Fallback** to sc_notify (macOS notification) if Telegram is unreachable for alerts
 </Escalation_And_Stop_Conditions>
 
 <Final_Checklist>
@@ -346,7 +342,7 @@ Make it executable: `chmod +x ~/superclaw/collectors/docker-health.sh`
 | GitHub collector returns empty | gh CLI not authenticated | Run `gh auth login` |
 | Sentry collector fails | Missing or expired token | Set SENTRY_AUTH_TOKEN env var |
 | Calendar collector empty | No automation permission | Grant Terminal access to Calendar in System Settings > Privacy > Automation |
-| Cron jobs don't fire | OpenClaw daemon not running | Run `superclaw daemon start` |
+| Cron jobs don't fire | Cron daemon not running | Check `sudo launchctl list | grep cron` on macOS |
 | Report too long for Telegram | Many alerts or verbose collectors | Report auto-truncates at 4096 chars; reduce collector verbosity |
 | History files accumulating | Auto-prune not running | Manually: `find ~/superclaw/heartbeat/history -mtime +7 -delete` |
 | Process collector slow | Too many processes | Limit to top 10 by CPU; avoid `ps aux` without `head` |
@@ -381,7 +377,7 @@ Make it executable: `chmod +x ~/superclaw/collectors/docker-health.sh`
 1. Run full heartbeat (all 7 collectors)
 2. Format as morning summary with calendar first
 3. Send to Telegram with "Good morning" header
-4. Schedule: sc_cron_add(name="morning-brief", schedule="0 8 * * 1-5", command="/run heartbeat")
+4. Schedule: Add `0 8 * * 1-5 /path/to/heartbeat.sh # morning-brief` to crontab
 ```
 
 **CI Watcher:**

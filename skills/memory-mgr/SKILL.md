@@ -1,15 +1,15 @@
 ---
 name: memory-mgr
-description: Manage persistent cross-session memory with knowledge graph, search, and OMC sync
+description: Manage persistent cross-session memory with knowledge graph, search, and cross-session persistence
 allowed-tools: Read, Write, Bash, Grep, Glob
 ---
 
 <Purpose>
-Store, search, and curate knowledge that persists across Claude Code sessions. Unlike the OMC
-notepad (7-day auto-prune) or project memory (single project scope), SuperClaw memory is permanent,
+Store, search, and curate knowledge that persists across Claude Code sessions. Unlike temporary
+notepad entries (7-day auto-prune) or project memory (single project scope), SuperClaw memory is permanent,
 searchable via FTS5 full-text search, and organized into a knowledge graph with typed entities
-and relations. This skill also provides bidirectional sync with OMC notepad and project memory
-so critical discoveries are available through both systems.
+and relations. This skill provides persistent storage across sessions so critical discoveries
+are always available.
 </Purpose>
 
 <Use_When>
@@ -18,12 +18,12 @@ so critical discoveries are available through both systems.
 - User says "forget this", "delete memory", "clean up old entries"
 - Starting a new session and need past context about a project or decision
 - Building a knowledge graph of project architecture, people, or technology relationships
-- User says "sync memory", "update notepad", "export to project memory"
+- User says "sync memory", "export memory"
 - User asks "what do you know about X?" or "have we seen this before?"
 </Use_When>
 
 <Do_Not_Use_When>
-- Temporary session-only information -- use OMC notepad_write_working instead
+- Temporary session-only information -- use sc_memory_store with appropriate category instead
 - Information already in CLAUDE.md or project documentation -- no need to duplicate
 - File content that can be re-read from disk -- don't store source code in memory
 - Credentials, tokens, or secrets -- NEVER store sensitive data in memory
@@ -31,7 +31,7 @@ so critical discoveries are available through both systems.
 
 <Why_This_Exists>
 Claude Code sessions are ephemeral. When a session ends, all context is lost unless explicitly
-persisted. The OMC notepad helps but auto-prunes after 7 days and lacks structured search.
+persisted. Temporary notepad entries help but auto-prune after 7 days and lack structured search.
 Project memory is per-project and unstructured. SuperClaw memory provides: (1) permanent storage
 with SQLite, (2) full-text search via FTS5, (3) structured knowledge graph with entities and
 relations, (4) confidence scoring and access tracking, (5) conversation logging for cross-session
@@ -54,7 +54,7 @@ continuity. This makes Claude Code's "long-term memory" reliable and queryable.
    - Search: user wants to find existing knowledge by query
    - Recall: user wants to retrieve by ID or browse by category
    - Graph: user wants to add/query entities and relationships
-   - Sync: user wants to push/pull between SuperClaw memory and OMC notepad/project-memory
+   - Sync: user wants to export memory entries
    - Stats: user wants to see memory usage and health
 
 2. **Phase 2 - Execute Memory Operation**: Call the appropriate sc_memory tool
@@ -96,11 +96,10 @@ continuity. This makes Claude Code's "long-term memory" reliable and queryable.
      - `project`: string -- optional project context
      - `tags`: string -- optional comma-separated tags
 
-5. **Phase 5 - OMC Sync** (bidirectional sync with OMC systems):
-   - Push to OMC notepad: use `notepad_write_working` with memory content
-   - Push to project memory: use `project_memory_add_note` with category and content
-   - Pull from OMC: read notepad/project-memory, then sc_memory_store if worth persisting
-   - Sync trigger: explicit user request or when critical knowledge is discovered
+5. **Phase 5 - Cross-session Persistence**:
+   - All memory entries persist automatically in ~/superclaw/data/memory.db
+   - Critical knowledge is available across all sessions
+   - Use appropriate categories to organize entries for easy retrieval
 
 6. **Phase 6 - Statistics and Health**:
    - Tool: `sc_memory_stats` (no params)
@@ -130,10 +129,6 @@ continuity. This makes Claude Code's "long-term memory" reliable and queryable.
 
 **Statistics (1 tool):**
 - `sc_memory_stats` -- Get memory database statistics; no params
-
-**OMC Sync (2 tools, from OMC):**
-- `notepad_write_working` -- Push important memories to OMC notepad for 7-day visibility
-- `project_memory_add_note` -- Push project-specific knowledge to OMC project memory
 </Tool_Usage>
 
 <Examples>
@@ -190,7 +185,7 @@ Why bad: Don't store source code that can be re-read from disk. Store insights a
 - [ ] No sensitive data (credentials, tokens, PII) stored in memory
 - [ ] Entities created before relations that reference them
 - [ ] Search results presented with ID, category, subject, and confidence
-- [ ] OMC sync performed when knowledge is critical for cross-session visibility
+- [ ] Appropriate category selected for cross-session persistence
 - [ ] User informed of operation result with confirmation
 </Final_Checklist>
 
@@ -267,10 +262,10 @@ sc_memory_add_relation(from="AuthService", to="PostgreSQL", relationType="uses")
 sc_memory_store(category="architecture", subject="AuthService design", content="...", confidence=0.7)
 ```
 
-**OMC Sync Pattern:**
+**Cross-session Retrieval:**
 ```
 1. sc_memory_search(query="critical decision") -- find important memories
-2. notepad_write_working(content="[Decision] Chose X because Y") -- push to OMC notepad
-3. project_memory_add_note(category="architecture", content="...") -- push to project memory
+2. Memories persist automatically across sessions in memory.db
+3. Use categories to organize and filter results effectively
 ```
 </Advanced>

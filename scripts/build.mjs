@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Build script — bundles MCP servers to CJS for Claude Code plugin.
- * Output: bridge/sc-bridge.cjs, bridge/sc-peekaboo.cjs, bridge/sc-memory.cjs
+ * Build script — bundles MCP servers and daemon to CJS for Claude Code plugin.
+ * Output: bridge/sc-bridge.cjs, bridge/sc-peekaboo.cjs, bridge/sc-memory.cjs, bridge/sc-daemon.cjs
  */
 import { build } from 'esbuild';
 import { join, dirname } from 'path';
@@ -62,6 +62,12 @@ const servers = [
     entry: join(root, 'src/mcp/memory-server.ts'),
     out: join(root, 'bridge/sc-memory.cjs'),
     // Memory server needs better-sqlite3 external
+    external: ['better-sqlite3'],
+  },
+  {
+    name: 'sc-daemon',
+    entry: join(root, 'src/daemon/sc-daemon.ts'),
+    out: join(root, 'bridge/sc-daemon.cjs'),
     external: ['better-sqlite3'],
   },
 ];

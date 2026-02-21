@@ -32,10 +32,9 @@ Agents repeat similar workflows across sessions but each session starts from scr
 <Execution_Policy>
 - Always search memory before creating a skill to confirm the pattern exists 3+ times
 - Never create skills that duplicate existing ones -- check skills/ directory first
-- Generated skills MUST follow the full OMC SKILL.md template (all 11 sections)
+- Generated skills MUST follow the full SuperClaw SKILL.md template (all 11 sections)
 - Test the draft against at least 2 past examples before installing
 - Skills are installed to ~/superclaw/skills/{skill-name}/SKILL.md
-- Optionally dual-install to ~/.claude/plugins/ for OMC-level visibility
 - Track skill creation in memory with category "skill_metrics"
 - Quality threshold: a generated skill must cover at least 80% of the pattern variants
 </Execution_Policy>
@@ -52,9 +51,9 @@ Agents repeat similar workflows across sessions but each session starts from scr
    - Error handling patterns
    - Verification/completion criteria
 
-3. **Check for existing coverage**: Search ~/superclaw/skills/ and ~/.claude/plugins/ for skills that already cover this pattern. If a skill exists but is incomplete, consider enhancing it rather than creating a new one.
+3. **Check for existing coverage**: Search ~/superclaw/skills/ for skills that already cover this pattern. If a skill exists but is incomplete, consider enhancing it rather than creating a new one.
 
-4. **Generate SKILL.md draft**: Delegate to `skill-forger` agent to produce a complete SKILL.md following the OMC template:
+4. **Generate SKILL.md draft**: Delegate to `skill-forger` agent to produce a complete SKILL.md following the SuperClaw template:
    ```
    Task(subagent_type="superclaw:skill-forger", model="sonnet", prompt="
      Generate a SKILL.md for pattern: {extracted_pattern}
@@ -197,13 +196,12 @@ After a skill is installed, Skill Forge tracks its usage over time:
 
 Store metrics via `sc_memory_store` with category "skill_metrics" and the skill name in metadata.
 
-## Dual Installation
+## Installation Location
 
-For skills that should be visible at the OMC level (not just SuperClaw), install to both locations:
-- Primary: `~/superclaw/skills/{name}/SKILL.md`
-- Secondary: `~/.claude/plugins/marketplaces/superclaw/skills/{name}/SKILL.md`
+Skills are installed to a single location:
+- `~/superclaw/skills/{name}/SKILL.md`
 
-This makes the skill available both when SuperClaw is the active project and when OMC is orchestrating across projects.
+This makes skills available system-wide when SuperClaw is active.
 
 ## Skill Evolution
 

@@ -4,17 +4,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 
 const CONFIG_PATH = join(homedir(), 'superclaw', 'superclaw.json');
-const OPENCLAW_CONFIG_PATH = join(homedir(), '.openclaw', 'openclaw.json');
 
 export function loadConfig(): SuperClawConfig {
-  let gatewayToken = '';
-  if (existsSync(OPENCLAW_CONFIG_PATH)) {
-    try {
-      const oc = JSON.parse(readFileSync(OPENCLAW_CONFIG_PATH, 'utf-8'));
-      gatewayToken = oc?.gateway?.auth?.token ?? '';
-    } catch {}
-  }
-
   let userConfig: Record<string, unknown> = {};
   if (existsSync(CONFIG_PATH)) {
     try {
@@ -22,12 +13,7 @@ export function loadConfig(): SuperClawConfig {
     } catch {}
   }
 
-  const raw = {
-    gateway: { token: gatewayToken, ...((userConfig.gateway as any) ?? {}) },
-    ...userConfig,
-  };
-
-  return SuperClawConfigSchema.parse(raw);
+  return SuperClawConfigSchema.parse(userConfig);
 }
 
 export function getProjectRoot(): string {

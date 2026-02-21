@@ -8,13 +8,15 @@ export interface WindowInfo {
 
 export async function getWindows(appName: string): Promise<WindowInfo[]> {
   const result = await osascript.runJXA(`
-    const app = Application("${appName.replace(/"/g, '\\"')}");
-    const wins = app.windows();
-    return JSON.stringify(wins.map(w => ({
-      name: w.name(),
-      position: { x: w.position()[0], y: w.position()[1] },
-      size: { w: w.size()[0], h: w.size()[1] }
-    })));
+    (function() {
+      const app = Application("${appName.replace(/"/g, '\\"')}");
+      const wins = app.windows();
+      return JSON.stringify(wins.map(w => ({
+        name: w.name(),
+        position: { x: w.position()[0], y: w.position()[1] },
+        size: { w: w.size()[0], h: w.size()[1] }
+      })));
+    })();
   `);
   try {
     return JSON.parse(result);
