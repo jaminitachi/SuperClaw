@@ -40,7 +40,10 @@ export async function getUsage() {
     if (!token) return null;
 
     const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'anthropic-beta': 'oauth-2025-04-20',
+      },
       signal: AbortSignal.timeout(5000),
     });
 
@@ -50,7 +53,10 @@ export async function getUsage() {
         const newToken = await refreshToken();
         if (newToken) {
           const retryResponse = await fetch('https://api.anthropic.com/api/oauth/usage', {
-            headers: { 'Authorization': `Bearer ${newToken}` },
+            headers: {
+              'Authorization': `Bearer ${newToken}`,
+              'anthropic-beta': 'oauth-2025-04-20',
+            },
             signal: AbortSignal.timeout(5000),
           });
           if (retryResponse.ok) {
@@ -80,26 +86,26 @@ function parseUsageResponse(data) {
 
   // 5-hour rolling limit
   if (data.five_hour) {
-    result.fiveHourPercent = Math.round((data.five_hour.utilization || 0) * 100);
-    if (data.five_hour.reset_at) {
-      result.fiveHourReset = data.five_hour.reset_at;
+    result.fiveHourPercent = Math.round(data.five_hour.utilization || 0);
+    if (data.five_hour.resets_at) {
+      result.fiveHourReset = data.five_hour.resets_at;
     }
   }
 
   // Weekly limit
   if (data.seven_day) {
-    result.weeklyPercent = Math.round((data.seven_day.utilization || 0) * 100);
-    if (data.seven_day.reset_at) {
-      result.weeklyReset = data.seven_day.reset_at;
+    result.weeklyPercent = Math.round(data.seven_day.utilization || 0);
+    if (data.seven_day.resets_at) {
+      result.weeklyReset = data.seven_day.resets_at;
     }
   }
 
   // Per-model weekly
   if (data.seven_day_opus) {
-    result.opusWeeklyPercent = Math.round((data.seven_day_opus.utilization || 0) * 100);
+    result.opusWeeklyPercent = Math.round(data.seven_day_opus.utilization || 0);
   }
   if (data.seven_day_sonnet) {
-    result.sonnetWeeklyPercent = Math.round((data.seven_day_sonnet.utilization || 0) * 100);
+    result.sonnetWeeklyPercent = Math.round(data.seven_day_sonnet.utilization || 0);
   }
 
   return result;
