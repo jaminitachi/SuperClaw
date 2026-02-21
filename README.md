@@ -77,11 +77,11 @@ Everything else is auto-installed by the setup wizard.
 git clone https://github.com/jaminitachi/SuperClaw.git ~/superclaw
 cd ~/superclaw
 
-# 2. One-command setup (installs everything, configures Telegram interactively, builds MCP servers)
+# 2. One-command setup (installs everything, configures Telegram, registers plugin permanently)
 npm run setup
 
-# 3. Launch Claude Code with SuperClaw
-claude --plugin-dir ~/superclaw
+# 3. Done! Just launch Claude Code — SuperClaw loads automatically
+claude
 ```
 
 That's it. The setup wizard handles everything:
@@ -91,6 +91,8 @@ That's it. The setup wizard handles everything:
 4. Asks for Telegram bot token + chat ID (optional, interactive)
 5. Creates `superclaw.json` with all settings
 6. Creates data directories
+7. Injects delegation rules into `~/.claude/CLAUDE.md`
+8. Registers SuperClaw as a permanent Claude Code plugin (no `--plugin-dir` needed)
 
 ## Architecture
 

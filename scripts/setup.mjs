@@ -367,17 +367,43 @@ async function createConfig() {
 }
 
 async function registerPlugin() {
-  step(8, 'Plugin registration...');
+  step(8, 'Registering plugin permanently...');
 
-  log('To register SuperClaw with Claude Code, run INSIDE a Claude Code session:');
-  log('');
-  log('  /plugin marketplace add ~/superclaw');
-  log('  /plugin install superclaw');
-  log('');
-  log('Or launch Claude Code with the plugin loaded directly:');
-  log(`  claude --plugin-dir ${SUPERCLAW_ROOT}`);
-  log('');
-  ok('See README.md for detailed instructions');
+  // Check if already registered as marketplace
+  const marketplaces = run('claude plugin marketplace list 2>/dev/null') ?? '';
+  const alreadyRegistered = marketplaces.includes('superclaw');
+
+  if (!alreadyRegistered) {
+    log('Adding SuperClaw as local marketplace...');
+    const addResult = run(`claude plugin marketplace add "${SUPERCLAW_ROOT}" 2>&1`);
+    if (addResult === null) {
+      warn('Could not add marketplace. You can do it manually:');
+      log(`  claude plugin marketplace add ${SUPERCLAW_ROOT}`);
+      log('  claude plugin install superclaw@superclaw');
+      return false;
+    }
+    ok('Marketplace registered');
+  } else {
+    ok('Marketplace already registered');
+  }
+
+  // Check if plugin is installed
+  const plugins = run('claude plugin list 2>/dev/null') ?? '';
+  const pluginInstalled = plugins.includes('superclaw');
+
+  if (!pluginInstalled) {
+    log('Installing SuperClaw plugin...');
+    const installResult = run('claude plugin install superclaw@superclaw 2>&1');
+    if (installResult === null) {
+      warn('Could not install plugin. You can do it manually:');
+      log('  claude plugin install superclaw@superclaw');
+      return false;
+    }
+    ok('Plugin installed permanently');
+  } else {
+    ok('Plugin already installed');
+  }
+
   return true;
 }
 
@@ -440,15 +466,10 @@ async function main() {
     console.log(`
 \x1b[32m  All components installed successfully!\x1b[0m
 
-  Next step — register the plugin with Claude Code:
+  SuperClaw is now permanently registered with Claude Code.
+  Just run \x1b[36mclaude\x1b[0m — SuperClaw loads automatically.
 
-    claude --plugin-dir ~/superclaw
-
-  Or inside an existing Claude Code session:
-
-    /plugin install ~/superclaw
-
-  Then try:
+  Try:
     - "take a screenshot" (Mac automation)
     - "search memory for..." (persistent memory)
     - "send to phone: hello" (Telegram)
