@@ -242,6 +242,13 @@ async function main() {
 
   // Start cron scheduler
   cronScheduler.start();
+
+  // Graceful shutdown when parent (Claude Code) disconnects
+  process.stdin.on('end', () => {
+    cronScheduler.stop();
+    process.exit(0);
+  });
+  process.stdin.resume();
 }
 
 main().catch((err) => {

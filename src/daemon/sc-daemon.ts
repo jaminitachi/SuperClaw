@@ -13,6 +13,7 @@ import { spawn as spawnChild } from 'child_process';
 import { readFileSync, existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { CronScheduler } from '../cron/scheduler.js';
 
 // ─── Paths ────────────────────────────────────────────────────
 const SUPERCLAW_ROOT = join(homedir(), 'superclaw');
@@ -53,6 +54,7 @@ interface TelegramResponse {
 
 // ─── State ────────────────────────────────────────────────────
 let running = true;
+let cronScheduler: CronScheduler | null = null;
 let offset = 0;
 let backoffMs = 1000;
 let startedAt = Date.now();
@@ -403,6 +405,7 @@ function setupShutdown(): void {
   const shutdown = (signal: string) => {
     log('INFO', `Received ${signal} — shutting down`);
     running = false;
+    cronScheduler?.stop();
 
     // Wait briefly for current work, then clean up
     setTimeout(() => {
@@ -423,6 +426,10 @@ async function main(): Promise<void> {
   mkdirSync(LOG_DIR, { recursive: true });
   writePidFile();
   setupShutdown();
+
+  // Start cron scheduler — runs independently of Claude Code sessions
+  cronScheduler = new CronScheduler(join(SUPERCLAW_ROOT, 'data'));
+  cronScheduler.start();
 
   log('INFO', `SuperClaw daemon started (PID ${process.pid})`);
   log('INFO', `Config: allowFrom=[${config.allowFrom.join(',')}], defaultChatId=${config.defaultChatId}`);

@@ -72,7 +72,7 @@ async function main() {
   // Ultrawork gets a special announcement
   let announcement = '';
   if (actions.includes('execute') && skills.includes('superclaw:ultrawork')) {
-    announcement = '\n\nIMPORTANT: Before doing anything else, display this announcement to the user:\n"**ultrawork!** 실행했습니다. 완료 조건을 확인하고 병렬 실행을 시작합니다."\nThen proceed with the skill.';
+    announcement = '\n\nIMPORTANT: Before doing anything else, display this announcement to the user:\n"**ultrawork!** 실행했습니다. 완료 조건을 확인하고 정확한 구현을 시작합니다."\nThen proceed with the skill.';
   }
 
   const context = `[SUPERCLAW KEYWORD DETECTED] User prompt matched SuperClaw keyword pattern. MUST invoke skill: ${skills.join(', ')}${announcement}`;

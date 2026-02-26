@@ -4,9 +4,24 @@
  * to both SC memory (via MCP reminder) and SC notepad working memory.
  */
 import { readStdin } from './lib/stdin.mjs';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+
+const HOOK_LOG_PATH = join(homedir(), 'superclaw', 'data', 'logs', 'hooks.log');
+
+function logError(context, err) {
+  try {
+    const ts = new Date().toISOString();
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack?.split('\n')[1]?.trim() || '' : '';
+    const line = `[${ts}] [ERROR] [${context}] ${msg}${stack ? ' | ' + stack : ''}\n`;
+    mkdirSync(join(homedir(), 'superclaw', 'data', 'logs'), { recursive: true });
+    appendFileSync(HOOK_LOG_PATH, line);
+  } catch {
+    // Last-resort: cannot even log the error
+  }
+}
 
 /**
  * Read transcript JSONL and return combined text plus separated message arrays.
@@ -27,7 +42,7 @@ function readTranscript(data) {
       try {
         const entry = JSON.parse(line);
 
-        if (entry.type === 'human' && entry.message?.content) {
+        if ((entry.type === 'human' || entry.type === 'user') && entry.message?.content) {
           const content = Array.isArray(entry.message.content)
             ? entry.message.content
                 .filter(c => c.type === 'text')
@@ -50,9 +65,7 @@ function readTranscript(data) {
         // Skip malformed lines
       }
     }
-  } catch {
-    return { transcriptText: '', userMessages: [], assistantMessages: [] };
-  }
+  } catch (e) { logError('readTranscript', e); return { transcriptText: '', userMessages: [], assistantMessages: [] }; }
 
   const allParts = [];
   for (let i = 0; i < Math.max(userMessages.length, assistantMessages.length); i++) {
@@ -122,9 +135,7 @@ ${truncated}
           return parseJsonFromResponse(text);
         }
       }
-    } catch {
-      // API call failed — fall through to CLI strategy
-    }
+    } catch (e) { logError('extractLearnings/api', e); }
   }
 
   // Strategy 2: Spawn claude CLI (uses Claude Code's OAuth auth)
@@ -170,9 +181,7 @@ ${truncated}
 
     // The model's response should be JSON — extract it robustly
     return parseJsonFromResponse(modelResponse);
-  } catch {
-    return null;
-  }
+  } catch (e) { logError('extractLearnings/cli', e); return null; }
 }
 
 /**
@@ -275,7 +284,10 @@ async function saveToMemoryDb(learnings) {
       if (!Array.isArray(items) || items.length === 0) continue;
       for (const item of items) {
         if (typeof item === 'string' && item.trim()) {
-          insertLearning.run(dbCategory, item.trim(), 'superclaw', key);
+          const exists = db.prepare('SELECT 1 FROM learnings WHERE content = ? LIMIT 1').get(item.trim());
+          if (!exists) {
+            insertLearning.run(dbCategory, item.trim(), 'superclaw', key);
+          }
         }
       }
     }
@@ -291,14 +303,10 @@ async function saveToMemoryDb(learnings) {
         JSON.stringify(learnings),
         0.7
       );
-    } catch {
-      // knowledge table may not exist — skip silently
-    }
+    } catch (e) { logError('saveToMemoryDb/knowledge', e); }
 
     db.close();
-  } catch {
-    // DB unavailable — non-critical, skip silently
-  }
+  } catch (e) { logError('saveToMemoryDb', e); }
 }
 
 /**
@@ -347,9 +355,7 @@ function syncToScNotepad(learnings) {
 
     notepad.working.push(entry);
     writeFileSync(notepadPath, JSON.stringify(notepad, null, 2), 'utf-8');
-  } catch {
-    // Notepad write failed — non-critical, skip silently
-  }
+  } catch (e) { logError('syncToScNotepad', e); }
 }
 
 /**
@@ -422,9 +428,7 @@ async function triggerObsidianSync() {
     mkdirSync(join(homedir(), 'superclaw', 'data'), { recursive: true });
     writeFileSync(syncStatePath, JSON.stringify({ lastSync: new Date().toISOString() }), 'utf-8');
 
-  } catch {
-    // Obsidian sync failed — non-critical, skip silently
-  }
+  } catch (e) { logError('triggerObsidianSync', e); }
 }
 
 async function main() {
@@ -477,6 +481,4 @@ async function main() {
   console.log(JSON.stringify({ continue: true }));
 }
 
-main().catch(() => {
-  console.log(JSON.stringify({ continue: true, suppressOutput: true }));
-});
+main().catch((e) => { logError('main', e); console.log(JSON.stringify({ continue: true, suppressOutput: true })); });

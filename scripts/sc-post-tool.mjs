@@ -6,6 +6,7 @@ import { readStdin } from './lib/stdin.mjs';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { todosPath, allowlistPath, agentFailuresPath } from './lib/session.mjs';
 
 async function main() {
   const raw = await readStdin(2000);
@@ -16,6 +17,33 @@ async function main() {
 
   const toolName = input?.tool_name ?? input?.toolName ?? '';
   const result = input?.tool_response ?? input?.tool_result ?? input?.result ?? '';
+
+  // RULE 1: Track TODO creation
+  if (toolName === 'TaskCreate') {
+    const sessionId = input?.session_id;
+    try {
+      fs.writeFileSync(todosPath(sessionId), new Date().toISOString());
+    } catch {}
+
+    // Extract file paths from task description and store in session allowlist
+    const desc = input?.tool_input?.description || '';
+    const filePattern = /(?:^|\s|[`"'])([\/\w.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|cpp|h|svelte|vue|css|scss|json|yaml|yml|toml|md))(?:\s|[`"']|$)/g;
+    const files = [];
+    let match;
+    while ((match = filePattern.exec(desc)) !== null) {
+      files.push(match[1]);
+    }
+    if (files.length > 0) {
+      const alPath = allowlistPath(sessionId);
+      let existing = [];
+      try { existing = JSON.parse(fs.readFileSync(alPath, 'utf-8')); } catch {}
+      const merged = [...new Set([...existing, ...files])];
+      try { fs.writeFileSync(alPath, JSON.stringify(merged)); } catch {}
+    }
+
+    console.log(JSON.stringify({ continue: true }));
+    return;
+  }
 
   // Check for common failure patterns in SC tools
   if (toolName.startsWith('sc_') && typeof result === 'string') {
@@ -81,10 +109,7 @@ async function main() {
     const isFailure = /error|failed|unable|timeout|could not/i.test(resultStr);
 
     if (isFailure) {
-      const dataDir = path.join(os.homedir(), 'superclaw', 'data');
-      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-
-      const trackingPath = path.join(dataDir, 'agent-failures.json');
+      const trackingPath = agentFailuresPath(input?.session_id);
       let failures = {};
       try {
         failures = JSON.parse(fs.readFileSync(trackingPath, 'utf-8'));
