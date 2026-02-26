@@ -5,22 +5,20 @@
 import { readStdin } from './lib/stdin.mjs';
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { subagentTrackingPath } from './lib/session.mjs';
 
-const STATE_DIR = join(homedir(), 'superclaw', 'data');
-const TRACKER_FILE = join(STATE_DIR, 'subagent-tracking.json');
-
-function loadState() {
+function loadState(trackingPath) {
   try {
-    return JSON.parse(readFileSync(TRACKER_FILE, 'utf-8'));
+    return JSON.parse(readFileSync(trackingPath, 'utf-8'));
   } catch {
     return { active: [], completed: 0, total: 0 };
   }
 }
 
-function saveState(state) {
-  if (!existsSync(STATE_DIR)) mkdirSync(STATE_DIR, { recursive: true });
-  writeFileSync(TRACKER_FILE, JSON.stringify(state, null, 2));
+function saveState(state, trackingPath) {
+  const dir = join(trackingPath, '..');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(trackingPath, JSON.stringify(state, null, 2));
 }
 
 const action = process.argv[2]; // 'start' or 'stop'
@@ -32,14 +30,15 @@ async function main() {
   let input;
   try { input = JSON.parse(raw); } catch { console.log(JSON.stringify({ continue: true })); return; }
 
-  const state = loadState();
+  const trackingPath = subagentTrackingPath(input?.session_id);
+  const state = loadState(trackingPath);
   const agentType = input?.agent_type ?? input?.tool_input?.subagent_type ?? input?.agentType ?? 'unknown';
   const agentName = agentType.replace('superclaw:', '');
 
   if (action === 'start') {
     state.active.push({ name: agentName, startedAt: new Date().toISOString() });
     state.total++;
-    saveState(state);
+    saveState(state, trackingPath);
 
     const activeNames = state.active.map(a => a.name).join(', ');
     console.log(JSON.stringify({
@@ -53,7 +52,7 @@ async function main() {
     const idx = state.active.findIndex(a => a.name === agentName);
     if (idx >= 0) state.active.splice(idx, 1);
     state.completed++;
-    saveState(state);
+    saveState(state, trackingPath);
 
     console.log(JSON.stringify({
       continue: true,

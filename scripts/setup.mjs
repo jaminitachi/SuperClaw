@@ -366,6 +366,40 @@ async function createConfig() {
   return true;
 }
 
+function setupHud() {
+  step('8b', 'Setting up HUD statusline...');
+
+  const settingsPath = join(HOME, '.claude', 'settings.json');
+  const hudCmd = `node ${join(SUPERCLAW_ROOT, 'hud', 'index.mjs')}`;
+
+  let settings = {};
+  try {
+    if (existsSync(settingsPath)) {
+      settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    }
+  } catch {
+    settings = {};
+  }
+
+  if (settings.statusCommand === hudCmd) {
+    ok('HUD statusline already configured');
+    return true;
+  }
+
+  settings.statusCommand = hudCmd;
+
+  try {
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    ok('HUD statusline configured — will auto-start with Claude Code');
+    return true;
+  } catch (e) {
+    warn(`Could not write settings.json: ${e.message}`);
+    log(`  Manually add to ~/.claude/settings.json:`);
+    log(`  "statusCommand": "${hudCmd}"`);
+    return false;
+  }
+}
+
 async function registerPlugin() {
   step(8, 'Registering plugin permanently...');
 
@@ -435,6 +469,9 @@ async function main() {
   // Phase 4: Register
   results.plugin = await registerPlugin();
 
+  // Phase 5: HUD statusline
+  results.hud = setupHud();
+
   // ─── Summary ─────────────────────────────────────────────
   console.log(`
 \x1b[36m╔══════════════════════════════════════════╗
@@ -451,6 +488,7 @@ async function main() {
     ['Configuration', results.config],
     ['CLAUDE.md Delegation Rules', results.claudemd],
     ['Claude Code Plugin', results.plugin],
+    ['HUD Statusline', results.hud],
   ];
 
   for (const [name, success] of items) {

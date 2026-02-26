@@ -3,6 +3,8 @@
  * PreToolUse hook — injects SuperClaw-specific reminders before tool calls.
  */
 import { readStdin } from './lib/stdin.mjs';
+import { existsSync, readFileSync } from 'fs';
+import { todosPath, allowlistPath } from './lib/session.mjs';
 
 async function main() {
   const raw = await readStdin(2000);
@@ -35,17 +37,43 @@ async function main() {
     },
     'Write': (input) => {
       const filePath = input?.tool_input?.file_path || '';
-      const sourceExts = /\.(ts|tsx|js|jsx|mjs|py|go|rs|java|c|cpp|h|svelte|vue)$/;
+      const sessionId = input?.session_id;
+      const sourceExts = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|cpp|h|svelte|vue|css|scss)$/;
       if (sourceExts.test(filePath)) {
-        return `⚠️ Source file modification detected: ${filePath}. Delegate source code changes to executor agent (superclaw:sc-atlas). Direct source file modification should be avoided per Delegation-First Philosophy.`;
+        if (!existsSync(todosPath(sessionId))) {
+          return { block: true, message: 'BLOCKED — RULE 1: TaskCreate로 TODO를 먼저 만드세요. 계획 없이 코드 수정 금지.' };
+        }
+        // Scope guard: warn if file is not in the session allowlist
+        const alPath = allowlistPath(sessionId);
+        if (existsSync(alPath)) {
+          try {
+            const allowed = JSON.parse(readFileSync(alPath, 'utf-8'));
+            if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(filePath)) {
+              return `⚠️ SCOPE WARNING: ${filePath} is not declared in any TODO. Consider adding it to your task plan.`;
+            }
+          } catch {}
+        }
       }
       return null;
     },
     'Edit': (input) => {
       const filePath = input?.tool_input?.file_path || '';
-      const sourceExts = /\.(ts|tsx|js|jsx|mjs|py|go|rs|java|c|cpp|h|svelte|vue)$/;
+      const sessionId = input?.session_id;
+      const sourceExts = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|cpp|h|svelte|vue|css|scss)$/;
       if (sourceExts.test(filePath)) {
-        return `⚠️ Source file modification detected: ${filePath}. Delegate source code changes to executor agent. Direct source file modification should be avoided per Delegation-First Philosophy.`;
+        if (!existsSync(todosPath(sessionId))) {
+          return { block: true, message: 'BLOCKED — RULE 1: TaskCreate로 TODO를 먼저 만드세요. 계획 없이 코드 수정 금지.' };
+        }
+        // Scope guard: warn if file is not in the session allowlist
+        const alPath = allowlistPath(sessionId);
+        if (existsSync(alPath)) {
+          try {
+            const allowed = JSON.parse(readFileSync(alPath, 'utf-8'));
+            if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(filePath)) {
+              return `⚠️ SCOPE WARNING: ${filePath} is not declared in any TODO. Consider adding it to your task plan.`;
+            }
+          } catch {}
+        }
       }
       return null;
     },
@@ -61,6 +89,18 @@ async function main() {
 
   const reminder = typeof reminderFn === 'function' ? reminderFn(input) : reminderFn;
   if (!reminder) { console.log(JSON.stringify({ continue: true })); return; }
+
+  // Handle blocking responses (RULE 1)
+  if (typeof reminder === 'object' && reminder.block) {
+    console.log(JSON.stringify({
+      continue: false,
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        additionalContext: `SuperClaw: ${reminder.message}`,
+      },
+    }));
+    return;
+  }
 
   console.log(JSON.stringify({
     continue: true,

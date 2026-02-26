@@ -4,9 +4,20 @@
  * notepad priority context into the session.
  */
 import { readStdin } from './lib/stdin.mjs';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { todosPath } from './lib/session.mjs';
+
+const HOOK_LOG_PATH = join(homedir(), 'superclaw', 'data', 'logs', 'hooks.log');
+
+function logError(context, err) {
+  try {
+    const ts = new Date().toISOString();
+    const msg = err instanceof Error ? err.message : String(err);
+    appendFileSync(HOOK_LOG_PATH, `[${ts}] [ERROR] [session-start/${context}] ${msg}\n`);
+  } catch {}
+}
 
 /**
  * Load recent memories from SC's SQLite database.
@@ -34,9 +45,7 @@ async function loadRecentMemories(dbPath) {
         summaries.push(`  - ${r.subject}${cat}: ${String(r.content).slice(0, 120)}`);
       }
     }
-  } catch {
-    // better-sqlite3 may not be available in hook context — fall back silently
-  }
+  } catch (e) { logError('loadRecentMemories', e); }
   return summaries;
 }
 
@@ -54,9 +63,7 @@ function loadScPriorityContext() {
         lines.push(`  ${notepad.priority.trim()}`);
       }
     }
-  } catch {
-    // Notepad not available or malformed — skip silently
-  }
+  } catch (e) { logError('loadScPriorityContext', e); }
   return lines;
 }
 
@@ -82,19 +89,22 @@ async function getUsageStats() {
         lines.push(`  ${line}`);
       }
     }
-  } catch {
-    // Usage stats unavailable — skip silently
-  }
+  } catch (e) { logError('getUsageStats', e); }
   return lines;
 }
 
 async function main() {
   const input = await readStdin();
+  let parsedInput = {};
   try {
-    JSON.parse(input); // validate input is JSON
+    parsedInput = JSON.parse(input);
   } catch {
     // non-JSON input is acceptable
   }
+  const sessionId = parsedInput?.session_id;
+
+  // RULE 1: Clean up TODO state for this session
+  try { unlinkSync(todosPath(sessionId)); } catch {}
 
   const scRoot = join(homedir(), 'superclaw');
   const configPath = join(scRoot, 'superclaw.json');
@@ -129,7 +139,7 @@ async function main() {
     if (!cfg.telegram?.enabled || !cfg.telegram?.botToken) {
       telegramHint = 'Telegram is not configured. To add it, run `npm run setup` again or edit superclaw.json.';
     }
-  } catch {}
+  } catch (e) { logError('loadConfig', e); }
 
   const lines = ['[SuperClaw] Persistent memory system active.'];
   if (telegramHint) lines.push(telegramHint);
@@ -169,9 +179,7 @@ async function main() {
         lines.push('Telegram bot: not reachable (network issue)');
       }
     }
-  } catch {
-    // Skip Telegram check silently
-  }
+  } catch (e) { logError('telegramCheck', e); }
 
   // Usage stats
   const usageLines = await getUsageStats();
@@ -191,6 +199,4 @@ async function main() {
   }));
 }
 
-main().catch(() => {
-  console.log(JSON.stringify({ continue: true, suppressOutput: true }));
-});
+main().catch((e) => { logError('main', e); console.log(JSON.stringify({ continue: true, suppressOutput: true })); });
