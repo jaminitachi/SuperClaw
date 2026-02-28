@@ -20,15 +20,7 @@ const SC_KEYWORDS = [
   { pattern: /\b(setup superclaw|install superclaw)\b/i, skill: 'superclaw:setup', action: 'setup' },
   { pattern: /^(setup|설정|초기\s*설정|configure|get\s*started|getting\s*started)$/i, skill: 'superclaw:setup', action: 'setup' },
   { pattern: /\b(create skill|skill forge|make a skill)\b/i, skill: 'superclaw:skill-forge', action: 'forge' },
-  { pattern: /\b(click on|open app|type into|window)\b/i, skill: 'superclaw:mac-control', action: 'control' },
-  // Developer workflow keywords
-  { pattern: /\b(architect|아키텍처|구조\s*설계|시스템\s*설계)\b/i, skill: 'superclaw:sc-architect', action: 'design' },
-  { pattern: /\b(frontend|프론트엔드|UI|컴포넌트|대시보드)\b/i, skill: 'superclaw:sc-frontend', action: 'implement' },
-  { pattern: /\b(code\s*review|코드\s*리뷰|리뷰해|review\s*this)\b/i, skill: 'superclaw:sc-code-reviewer', action: 'review' },
-  { pattern: /\b(security|보안|취약점|vulnerability|OWASP)\b/i, skill: 'superclaw:sc-security-reviewer', action: 'scan' },
-  { pattern: /\b(debug|디버그|디버깅|버그|에러\s*분석)\b/i, skill: 'superclaw:sc-debugger', action: 'debug' },
-  { pattern: /\b(test|테스트|TDD|커버리지|coverage)\b/i, skill: 'superclaw:sc-test-engineer', action: 'test' },
-  { pattern: /\b(performance|성능|벤치마크|bottleneck|병목)\b/i, skill: 'superclaw:sc-performance', action: 'analyze' },
+  { pattern: /\b(click on|open app|type into)\b/i, skill: 'superclaw:mac-control', action: 'control' },
   // Ultrawork / Ralph Loop
   { pattern: /\b(ulw|ultrawork|완료될\s*때까지|끝날\s*때까지|다\s*해줘)\b/i, skill: 'superclaw:ultrawork', action: 'execute' },
 ];

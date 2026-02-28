@@ -106,7 +106,19 @@ async function main() {
     }
 
     // Agent failure detection and circuit breaker (only if not in ultrawork)
-    const isFailure = /error|failed|unable|timeout|could not/i.test(resultStr);
+    function isAgentFailure(res) {
+      if (typeof res === 'object' && res !== null) {
+        if (res.success === false) return true;
+        if (res.error && typeof res.error === 'string') return true;
+        return false;
+      }
+      const s = typeof res === 'string' ? res : JSON.stringify(res);
+      try { const p = JSON.parse(s); if (p.success === false || p.error) return true; return false; } catch {}
+      if (/^(Error:|FAILED:|FATAL:|Exception:|Traceback|panic:)/im.test(s.trim())) return true;
+      if (s.includes('Agent failed') || s.includes('agent encountered an error')) return true;
+      return false;
+    }
+    const isFailure = isAgentFailure(result);
 
     if (isFailure) {
       const trackingPath = agentFailuresPath(input?.session_id);

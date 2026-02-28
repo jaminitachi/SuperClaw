@@ -1116,6 +1116,83 @@ server.tool(
   }
 );
 
+// --- Notepad (cross-session scratchpad) ---
+
+const NOTEPAD_PATH = join(homedir(), '.claude', '.sc', 'notepad.json');
+
+function loadNotepad(): { priority: string; entries: Record<string, { content: string; updated_at: string }> } {
+  try {
+    if (existsSync(NOTEPAD_PATH)) {
+      const raw = JSON.parse(readFileSync(NOTEPAD_PATH, 'utf-8'));
+      return { priority: raw.priority ?? '', entries: raw.entries ?? {} };
+    }
+  } catch { /* corrupted file */ }
+  return { priority: '', entries: {} };
+}
+
+function saveNotepad(notepad: { priority: string; entries: Record<string, { content: string; updated_at: string }> }): void {
+  const dir = join(homedir(), '.claude', '.sc');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(NOTEPAD_PATH, JSON.stringify(notepad, null, 2), 'utf-8');
+}
+
+server.tool(
+  'sc_notepad_write',
+  'Write a memo to the cross-session notepad scratchpad. Use for working notes, decisions, or context that should persist.',
+  {
+    key: z.string().describe('Memo key (e.g., "current-task", "debug-notes")'),
+    content: z.string().describe('Memo content'),
+  },
+  async ({ key, content }) => {
+    const notepad = loadNotepad();
+    notepad.entries[key] = { content, updated_at: new Date().toISOString() };
+    saveNotepad(notepad);
+    return { content: [{ type: 'text' as const, text: `Notepad memo saved: "${key}" (${content.length} chars)` }] };
+  }
+);
+
+server.tool(
+  'sc_notepad_read',
+  'Read memos from the cross-session notepad.',
+  {
+    key: z.string().optional().describe('Specific key to read. Omit for all entries.'),
+  },
+  async ({ key }) => {
+    const notepad = loadNotepad();
+    if (key) {
+      const entry = notepad.entries[key];
+      if (!entry) return { content: [{ type: 'text' as const, text: `No entry "${key}".` }] };
+      return { content: [{ type: 'text' as const, text: `[${key}] (${entry.updated_at})\n${entry.content}` }] };
+    }
+    const lines: string[] = [];
+    if (notepad.priority) { lines.push(`Priority: ${notepad.priority}`, ''); }
+    for (const [k, e] of Object.entries(notepad.entries)) {
+      lines.push(`[${k}] (${e.updated_at})`, e.content, '');
+    }
+    return { content: [{ type: 'text' as const, text: lines.length ? lines.join('\n').trim() : 'Notepad is empty.' }] };
+  }
+);
+
+server.tool(
+  'sc_notepad_clear',
+  'Clear notepad entries.',
+  {
+    key: z.string().optional().describe('Key to clear. Omit to clear all (keeps priority).'),
+  },
+  async ({ key }) => {
+    const notepad = loadNotepad();
+    if (key) {
+      if (!notepad.entries[key]) return { content: [{ type: 'text' as const, text: `No entry "${key}".` }] };
+      delete notepad.entries[key];
+      saveNotepad(notepad);
+      return { content: [{ type: 'text' as const, text: `Cleared "${key}".` }] };
+    }
+    notepad.entries = {};
+    saveNotepad(notepad);
+    return { content: [{ type: 'text' as const, text: 'All entries cleared (priority preserved).' }] };
+  }
+);
+
 // Start server
 async function main() {
   const transport = new StdioServerTransport();
