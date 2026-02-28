@@ -48,64 +48,6 @@ function ask(question) {
   return new Promise((resolve) => rl.question(`  ${question} `, resolve));
 }
 
-function injectClaudeMd() {
-  step('7b', 'Injecting delegation rules into CLAUDE.md...');
-
-  const START_MARKER = '<!-- SC:START -->';
-  const END_MARKER = '<!-- SC:END -->';
-  const VERSION_MARKER = `<!-- SC:VERSION:2.0.0 -->`;
-
-  // Read SuperClaw delegation rules
-  const scClaudeMdPath = join(SUPERCLAW_ROOT, 'docs', 'CLAUDE.md');
-  if (!existsSync(scClaudeMdPath)) {
-    warn('docs/CLAUDE.md not found — skipping delegation rules injection');
-    return true;
-  }
-  const scContent = readFileSync(scClaudeMdPath, 'utf-8');
-
-  // Target: ~/.claude/CLAUDE.md
-  const targetPath = join(HOME, '.claude', 'CLAUDE.md');
-  mkdirSync(join(HOME, '.claude'), { recursive: true });
-
-  let existing = '';
-  if (existsSync(targetPath)) {
-    existing = readFileSync(targetPath, 'utf-8');
-  }
-
-  // Build new block
-  const newBlock = `${START_MARKER}\n${VERSION_MARKER}\n${scContent}\n${END_MARKER}`;
-
-  // Check if markers already exist
-  const startIdx = existing.indexOf(START_MARKER);
-  const endIdx = existing.indexOf(END_MARKER);
-
-  let merged;
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    // Replace existing block
-    const before = existing.substring(0, startIdx);
-    const after = existing.substring(endIdx + END_MARKER.length);
-    merged = `${before}${newBlock}${after}`;
-    ok('Delegation rules updated in ~/.claude/CLAUDE.md');
-  } else {
-    // No existing markers — prepend
-    if (existing.trim()) {
-      merged = `${newBlock}\n\n${existing}`;
-    } else {
-      merged = newBlock;
-    }
-    ok('Delegation rules injected into ~/.claude/CLAUDE.md');
-  }
-
-  // Backup before writing
-  if (existing.trim()) {
-    const backupPath = join(HOME, '.claude', `CLAUDE.md.backup.${Date.now()}`);
-    writeFileSync(backupPath, existing);
-  }
-
-  writeFileSync(targetPath, merged);
-  return true;
-}
-
 // ─── Steps ───────────────────────────────────────────────────
 async function checkPeekabooPermissions() {
   const permsOutput = run('peekaboo permissions --verbose') ?? '';
@@ -267,7 +209,6 @@ async function setupDataDirectory() {
 
   const dataDir = join(SUPERCLAW_ROOT, 'data');
   mkdirSync(dataDir, { recursive: true });
-  mkdirSync(join(dataDir, 'heartbeats'), { recursive: true });
 
   // Initialize empty memory.db by importing schema check
   const dbPath = join(dataDir, 'memory.db');
@@ -381,12 +322,19 @@ function setupHud() {
     settings = {};
   }
 
-  if (settings.statusCommand === hudCmd) {
+  const currentCmd = settings.statusLine?.command;
+  if (currentCmd === hudCmd) {
     ok('HUD statusline already configured');
     return true;
   }
 
-  settings.statusCommand = hudCmd;
+  // Remove legacy wrong key if present
+  delete settings.statusCommand;
+
+  settings.statusLine = {
+    type: 'command',
+    command: hudCmd,
+  };
 
   try {
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
@@ -395,7 +343,86 @@ function setupHud() {
   } catch (e) {
     warn(`Could not write settings.json: ${e.message}`);
     log(`  Manually add to ~/.claude/settings.json:`);
-    log(`  "statusCommand": "${hudCmd}"`);
+    log(`  "statusLine": { "type": "command", "command": "${hudCmd}" }`);
+    return false;
+  }
+}
+
+function setupAutoApproval() {
+  step('8c', 'Setting up MCP tool auto-approval...');
+
+  const settingsLocalPath = join(HOME, '.claude', 'settings.local.json');
+  mkdirSync(join(HOME, '.claude'), { recursive: true });
+
+  let settings = { permissions: { allow: [] } };
+  try {
+    if (existsSync(settingsLocalPath)) {
+      settings = JSON.parse(readFileSync(settingsLocalPath, 'utf-8'));
+    }
+  } catch { settings = { permissions: { allow: [] } }; }
+
+  if (!settings.permissions) settings.permissions = {};
+  if (!Array.isArray(settings.permissions.allow)) settings.permissions.allow = [];
+
+  const SC_TOOLS = [
+    'mcp__plugin_superclaw_sc-memory__sc_memory_store',
+    'mcp__plugin_superclaw_sc-memory__sc_memory_search',
+    'mcp__plugin_superclaw_sc-memory__sc_memory_recall',
+    'mcp__plugin_superclaw_sc-memory__sc_memory_delete',
+    'mcp__plugin_superclaw_sc-memory__sc_memory_graph_query',
+    'mcp__plugin_superclaw_sc-memory__sc_memory_add_entity',
+    'mcp__plugin_superclaw_sc-memory__sc_memory_add_relation',
+    'mcp__plugin_superclaw_sc-memory__sc_memory_log_conversation',
+    'mcp__plugin_superclaw_sc-memory__sc_memory_stats',
+    'mcp__plugin_superclaw_sc-memory__sc_learning_store',
+    'mcp__plugin_superclaw_sc-memory__sc_learning_recall',
+    'mcp__plugin_superclaw_sc-memory__sc_learning_summary',
+    'mcp__plugin_superclaw_sc-memory__sc_verification_log',
+    'mcp__plugin_superclaw_sc-memory__sc_obsidian_sync',
+    'mcp__plugin_superclaw_sc-memory__sc_memory_session_history',
+    'mcp__plugin_superclaw_sc-memory__sc_notepad_write',
+    'mcp__plugin_superclaw_sc-memory__sc_notepad_read',
+    'mcp__plugin_superclaw_sc-memory__sc_notepad_clear',
+    'mcp__plugin_superclaw_sc-bridge__sc_send_message',
+    'mcp__plugin_superclaw_sc-bridge__sc_telegram_inbox',
+    'mcp__plugin_superclaw_sc-bridge__sc_telegram_status',
+    'mcp__plugin_superclaw_sc-bridge__sc_route_command',
+    'mcp__plugin_superclaw_sc-bridge__sc_status',
+    'mcp__plugin_superclaw_sc-bridge__sc_cron_list',
+    'mcp__plugin_superclaw_sc-bridge__sc_cron_add',
+    'mcp__plugin_superclaw_sc-bridge__sc_cron_remove',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_screenshot',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_see',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_click',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_type',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_hotkey',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_ocr',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_app_launch',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_app_quit',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_app_list',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_app_frontmost',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_window_list',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_window_move',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_window_resize',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_osascript',
+    'mcp__plugin_superclaw_sc-peekaboo__sc_notify',
+  ];
+
+  const existing = new Set(settings.permissions.allow);
+  let added = 0;
+  for (const tool of SC_TOOLS) {
+    if (!existing.has(tool)) {
+      settings.permissions.allow.push(tool);
+      added++;
+    }
+  }
+
+  try {
+    writeFileSync(settingsLocalPath, JSON.stringify(settings, null, 2));
+    ok(`${added} new tools auto-approved (${SC_TOOLS.length} total SC tools)`);
+    return true;
+  } catch (e) {
+    warn(`Could not write settings.local.json: ${e.message}`);
     return false;
   }
 }
@@ -464,13 +491,15 @@ async function main() {
   // Phase 3: Configure
   results.data = await setupDataDirectory();
   results.config = await createConfig();
-  results.claudemd = injectClaudeMd();
 
   // Phase 4: Register
   results.plugin = await registerPlugin();
 
   // Phase 5: HUD statusline
   results.hud = setupHud();
+
+  // Phase 6: MCP auto-approval
+  results.approval = setupAutoApproval();
 
   // ─── Summary ─────────────────────────────────────────────
   console.log(`
@@ -486,9 +515,9 @@ async function main() {
     ['MCP Servers (3)', results.build],
     ['Data Directory', results.data],
     ['Configuration', results.config],
-    ['CLAUDE.md Delegation Rules', results.claudemd],
     ['Claude Code Plugin', results.plugin],
     ['HUD Statusline', results.hud],
+    ['MCP Tool Auto-Approval', results.approval],
   ];
 
   for (const [name, success] of items) {

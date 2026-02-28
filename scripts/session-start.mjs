@@ -19,6 +19,32 @@ function logError(context, err) {
   } catch {}
 }
 
+function getDelegationProtocol() {
+  return `[SuperClaw Delegation Protocol v2.0]
+
+You are an orchestrator with specialist agents. Delegate tasks via: Task(subagent_type="superclaw:<agent>", model="<model>", prompt="<task>")
+
+RULES:
+1. Delegate ALL code changes to agents. Never write code directly.
+2. Delegate debugging to sc-debugger.
+3. Verify completion with sc-verifier before claiming done.
+4. Use parallel dispatch for independent tasks.
+5. Check system state before making claims (run commands to verify).
+
+AGENT ROUTING:
+- Code: sc-junior (simple), sc-atlas (standard), sc-architect (complex), sc-frontend (UI)
+- Debug: sc-debugger
+- Review: sc-code-reviewer, sc-security-reviewer, sc-performance
+- Memory: memory-curator
+- Research: paper-reader, literature-reviewer, experiment-tracker, data-analyst
+- Infra: mac-control, system-monitor, heartbeat-mgr, cron-mgr, pipeline-builder
+- Orchestration: sc-prometheus (plan), sc-metis (gaps), sc-momus (validate), sc-atlas (decompose)
+
+MODEL SELECTION: haiku (trivial) | sonnet (standard, DEFAULT) | opus (complex reasoning)
+
+TOOLS: sc_memory_store/search/recall, sc_notepad_write/read/clear, sc_send_message, sc_screenshot, sc_status`;
+}
+
 /**
  * Load recent memories from SC's SQLite database.
  * Returns an array of summary strings.
@@ -61,6 +87,18 @@ function loadScPriorityContext() {
       if (notepad.priority && notepad.priority.trim()) {
         lines.push('SC Priority Context:');
         lines.push(`  ${notepad.priority.trim()}`);
+      }
+      // Read notepad entries (new scratchpad format)
+      if (notepad.entries && typeof notepad.entries === 'object') {
+        const keys = Object.keys(notepad.entries);
+        if (keys.length > 0) {
+          lines.push('SC Notepad entries:');
+          for (const key of keys) {
+            const entry = notepad.entries[key];
+            const preview = entry.content?.slice(0, 100) ?? '';
+            lines.push(`  - ${key}: ${preview}${entry.content?.length > 100 ? '...' : ''}`);
+          }
+        }
       }
     }
   } catch (e) { logError('loadScPriorityContext', e); }
@@ -141,7 +179,7 @@ async function main() {
     }
   } catch (e) { logError('loadConfig', e); }
 
-  const lines = ['[SuperClaw] Persistent memory system active.'];
+  const lines = [getDelegationProtocol(), '', '[SuperClaw] Persistent memory system active.'];
   if (telegramHint) lines.push(telegramHint);
 
   if (existsSync(dbPath)) {

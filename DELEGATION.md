@@ -2,71 +2,64 @@
 
 ## Agent Selection Guide
 
-When a task involves SuperClaw's domain, delegate to SuperClaw specialist agents.
+When a task involves SuperClaw's domain, delegate to SuperClaw specialist agents. Complexity is controlled by the `model` parameter (haiku/sonnet/opus), not by separate agent names.
 
 ### Routing Table
 
-| Task Pattern | Delegate To | Model | Tier |
-|-------------|-------------|-------|------|
-| Simple screenshot, app launch | superclaw:mac-control-low | haiku | LOW |
-| Multi-step UI automation | superclaw:mac-control | sonnet | MEDIUM |
-| Quick memory lookup | superclaw:memory-curator-low | haiku | LOW |
-| Store/curate knowledge | superclaw:memory-curator | sonnet | MEDIUM |
-| Complex graph reasoning | superclaw:memory-curator-high | opus | HIGH |
-| Build simple pipeline | superclaw:pipeline-builder | sonnet | MEDIUM |
-| Cross-system orchestration | superclaw:pipeline-builder-high | opus | HIGH |
-| Heartbeat config | superclaw:heartbeat-mgr | haiku | LOW |
-| Cron management | superclaw:cron-mgr | haiku | LOW |
-| Quick system check | superclaw:system-monitor | haiku | LOW |
-| Deep system investigation | superclaw:system-monitor-high | sonnet | MEDIUM |
-| Gateway debugging | superclaw:gateway-debugger | sonnet | MEDIUM |
-| Metrics analysis | superclaw:data-analyst | sonnet | MEDIUM |
-| Verify SC operations | superclaw:sc-verifier | sonnet | MEDIUM |
-| Installation check | superclaw:setup-validator | haiku | LOW |
-| Track pipeline execution | superclaw:workflow-monitor | haiku | LOW |
-| Read single paper | superclaw:paper-reader | sonnet | MEDIUM |
-| Multi-paper synthesis | superclaw:literature-reviewer | opus | HIGH |
-| Log experiment | superclaw:experiment-tracker | sonnet | MEDIUM |
-| Quick citation/BibTeX | superclaw:research-assistant | haiku | LOW |
-| Academic code review | superclaw:research-code-reviewer | opus | HIGH |
-| Skill auto-generation | superclaw:skill-forger | sonnet | MEDIUM |
+| Task Pattern | Delegate To | Model | Notes |
+|-------------|-------------|-------|-------|
+| Mac automation (simple or complex) | superclaw:mac-control | haiku / sonnet | haiku for screenshots/app launch, sonnet for multi-step UI |
+| Memory operations (lookup to synthesis) | superclaw:memory-curator | haiku / sonnet / opus | haiku for lookups, sonnet for curation, opus for reasoning |
+| Pipeline design (simple or complex) | superclaw:pipeline-builder | sonnet / opus | sonnet for linear pipelines, opus for cross-system orchestration |
+| Heartbeat config | superclaw:heartbeat-mgr | haiku | |
+| Cron management | superclaw:cron-mgr | haiku | |
+| System monitoring (quick or deep) | superclaw:system-monitor | haiku / sonnet | haiku for health checks, sonnet for deep investigation |
+| Gateway debugging | superclaw:gateway-debugger | sonnet | |
+| Metrics analysis | superclaw:data-analyst | sonnet | |
+| Verify SC operations | superclaw:sc-verifier | sonnet | |
+| Installation check | superclaw:setup-validator | haiku | |
+| Track pipeline execution | superclaw:workflow-monitor | haiku | |
+| Read single paper | superclaw:paper-reader | sonnet | |
+| Multi-paper synthesis | superclaw:literature-reviewer | opus | |
+| Log experiment | superclaw:experiment-tracker | sonnet | |
+| Quick citation/BibTeX | superclaw:research-assistant | haiku | |
+| Academic code review | superclaw:research-code-reviewer | opus | |
+| Skill auto-generation | superclaw:skill-forger | sonnet | |
 
 ### Keyword-to-Agent Mapping
 
-| User Says | Primary Agent | Fallback |
-|-----------|---------------|----------|
-| "screenshot", "take picture" | mac-control-low | mac-control |
-| "click on", "type into", "automate" | mac-control | mac-control-low |
-| "remember", "store", "save" | memory-curator | memory-curator-low |
-| "search memory", "recall" | memory-curator-low | memory-curator |
-| "heartbeat", "system health" | system-monitor | system-monitor-high |
-| "schedule", "cron", "every" | cron-mgr | - |
-| "pipeline", "morning brief" | pipeline-builder | pipeline-builder-high |
+| User Says | Agent | Model |
+|-----------|-------|-------|
+| "screenshot", "take picture" | mac-control | haiku |
+| "click on", "type into", "automate" | mac-control | sonnet |
+| "remember", "store", "save" | memory-curator | sonnet |
+| "search memory", "recall" | memory-curator | haiku |
+| "complex graph reasoning", "synthesize knowledge" | memory-curator | opus |
+| "heartbeat", "system health" | system-monitor | haiku |
+| "deep system investigation" | system-monitor | sonnet |
+| "schedule", "cron", "every" | cron-mgr | haiku |
+| "pipeline", "morning brief" | pipeline-builder | sonnet |
+| "complex pipeline", "cross-system orchestration" | pipeline-builder | opus |
 | "telegram", "send to phone" | (skill: telegram-control) | - |
-| "read paper", "arxiv" | paper-reader | - |
-| "literature review" | literature-reviewer | paper-reader |
-| "experiment", "log results" | experiment-tracker | - |
-| "citation", "bibtex" | research-assistant | - |
-| "analyze data", "metrics" | data-analyst | - |
+| "read paper", "arxiv" | paper-reader | sonnet |
+| "literature review" | literature-reviewer | opus |
+| "experiment", "log results" | experiment-tracker | sonnet |
+| "citation", "bibtex" | research-assistant | haiku |
+| "analyze data", "metrics" | data-analyst | sonnet |
 | "check PRs", "CI status" | (skill: dev-workflow) | - |
-| "setup superclaw" | setup-validator | - |
+| "setup superclaw" | setup-validator | haiku |
 
 ### Developer Tools Domain
 
-| Task Pattern | Agent | Model | Priority |
-|-------------|-------|-------|----------|
-| Architecture design/review | superclaw:sc-architect | opus | HIGH |
-| Quick structure check | superclaw:sc-architect-low | haiku | LOW |
-| Frontend/UI implementation | superclaw:sc-frontend | sonnet | MEDIUM |
-| Code review (thorough) | superclaw:sc-code-reviewer | opus | HIGH |
-| Code review (quick) | superclaw:sc-code-reviewer-low | haiku | LOW |
-| Security vulnerability scan | superclaw:sc-security-reviewer | opus | HIGH |
-| Secret scanning (quick) | superclaw:sc-security-reviewer-low | haiku | LOW |
-| Bug debugging | superclaw:sc-debugger | sonnet | MEDIUM |
-| Complex debugging | superclaw:sc-debugger-high | opus | HIGH |
-| Test strategy/writing | superclaw:sc-test-engineer | sonnet | MEDIUM |
-| Performance analysis | superclaw:sc-performance | sonnet | MEDIUM |
-| Complex performance | superclaw:sc-performance-high | opus | HIGH |
+| Task Pattern | Agent | Model | Notes |
+|-------------|-------|-------|-------|
+| Architecture analysis (quick or deep) | superclaw:sc-architect | haiku / opus | haiku for structure checks, opus for deep analysis |
+| Frontend/UI implementation | superclaw:sc-frontend | sonnet | |
+| Code review (quick or thorough) | superclaw:sc-code-reviewer | haiku / opus | haiku for simple changes, opus for full review |
+| Security review (scan or audit) | superclaw:sc-security-reviewer | haiku / opus | haiku for secret scanning, opus for OWASP analysis |
+| Bug debugging (standard or complex) | superclaw:sc-debugger | sonnet / opus | sonnet for standard bugs, opus for concurrency/cross-system |
+| Test strategy/writing | superclaw:sc-test-engineer | sonnet | |
+| Performance analysis (standard or deep) | superclaw:sc-performance | sonnet / opus | sonnet for hotspots, opus for concurrency/GPU/distributed |
 
 ### Task Mapping for General Development
 
@@ -79,12 +72,12 @@ When a task falls outside SuperClaw's specialized domain, use these agent mappin
 | Documentation writing | superclaw:sc-junior | haiku |
 | Strategic planning | superclaw:sc-prometheus | opus |
 | Architecture analysis | superclaw:sc-architect | opus |
-| Quick exploration | superclaw:sc-architect-low | haiku |
+| Quick exploration | superclaw:sc-architect | haiku |
 | Plan validation/critique | superclaw:sc-momus | sonnet |
 
 ### SuperClaw Execution Modes
 
 SuperClaw has its own ultrawork mode for parallel agent execution:
 - **ultrawork**: Multiple SC agents run concurrently on task pool
-- **orchestration**: sc-prometheus (planner) → sc-metis (coordinator) → sc-atlas/sc-junior (workers)
+- **orchestration**: sc-prometheus (planner) -> sc-metis (coordinator) -> sc-atlas/sc-junior (workers)
 - **verification**: All tasks verified by sc-verifier before completion
