@@ -109,18 +109,74 @@ const TEAM_PATTERNS = [
       { type: 'superclaw:sc-security-reviewer', role: 'Security check', model: 'opus' },
     ],
   },
+  {
+    // Frontend: UI, 프론트, 대시보드, 컴포넌트, 화면, 페이지
+    test: (s) => /(프론트|frontend|UI|대시보드|컴포넌트|화면|페이지|웹앱|react|vue|next)/i.test(s),
+    team: 'frontend',
+    description: 'Frontend Team',
+    agents: [
+      { type: 'superclaw:sc-frontend', role: 'UI/UX implementation', model: 'sonnet' },
+      { type: 'superclaw:sc-architect', role: 'Component architecture', model: 'opus' },
+      { type: 'superclaw:sc-test-engineer', role: 'UI testing', model: 'sonnet' },
+    ],
+  },
+  {
+    // Backend: 서버, API, 백엔드, 데이터베이스, DB, 인증
+    test: (s) => /(백엔드|backend|서버|server|API|데이터베이스|DB|인증|auth|endpoint|REST|GraphQL)/i.test(s),
+    team: 'backend',
+    description: 'Backend Team',
+    agents: [
+      { type: 'superclaw:sc-architect', role: 'API & system design', model: 'opus' },
+      { type: 'superclaw:sc-junior', role: 'Backend implementation', model: 'sonnet' },
+      { type: 'superclaw:sc-test-engineer', role: 'API testing', model: 'sonnet' },
+      { type: 'superclaw:sc-security-reviewer', role: 'Auth & security review', model: 'opus' },
+    ],
+  },
+  {
+    // Infra/DevOps: 인프라, CI/CD, 도커, 쿠버네티스, 배포 파이프라인
+    test: (s) => /(인프라|infra|devops|CI\/CD|도커|docker|쿠버|kubernetes|k8s|terraform|AWS|GCP|클라우드|cloud)/i.test(s),
+    team: 'infra',
+    description: 'Infra & DevOps Team',
+    agents: [
+      { type: 'superclaw:sc-architect', role: 'Infrastructure design', model: 'opus' },
+      { type: 'superclaw:sc-junior', role: 'Config & scripting', model: 'sonnet' },
+      { type: 'superclaw:sc-security-reviewer', role: 'Infra security', model: 'opus' },
+    ],
+  },
+  {
+    // Data/ML: 데이터, ML, 모델, 학습, 분석, 파이프라인
+    test: (s) => /(데이터\s*분석|데이터\s*파이프|ML|머신러닝|모델\s*학습|training|dataset|ETL|통계|analytics)/i.test(s),
+    team: 'data',
+    description: 'Data & ML Team',
+    agents: [
+      { type: 'superclaw:data-analyst', role: 'Data analysis & visualization', model: 'sonnet' },
+      { type: 'superclaw:sc-architect', role: 'Pipeline architecture', model: 'opus' },
+      { type: 'superclaw:sc-junior', role: 'Data engineering', model: 'sonnet' },
+      { type: 'superclaw:experiment-tracker', role: 'Experiment tracking', model: 'sonnet' },
+    ],
+  },
 ];
 
-// Fallback team when ULW is active but no specific team pattern matched
-const DEFAULT_ULW_TEAM = {
-  team: 'general',
-  description: 'General ULW Team',
-  agents: [
-    { type: 'superclaw:sc-architect', role: 'Analysis & planning', model: 'opus' },
-    { type: 'superclaw:sc-junior', role: 'Implementation', model: 'sonnet' },
-    { type: 'superclaw:sc-test-engineer', role: 'Verification', model: 'sonnet' },
-  ],
-};
+// Full agent roster for dynamic team composition
+const AGENT_ROSTER = [
+  { type: 'superclaw:sc-architect', capability: 'Architecture, system design, structural analysis', model: 'opus' },
+  { type: 'superclaw:sc-junior', capability: 'Code implementation, scripting, file changes', model: 'sonnet' },
+  { type: 'superclaw:sc-test-engineer', capability: 'Testing, QA, coverage, TDD', model: 'sonnet' },
+  { type: 'superclaw:sc-code-reviewer', capability: 'Code review, quality analysis, best practices', model: 'opus' },
+  { type: 'superclaw:sc-security-reviewer', capability: 'Security audit, vulnerability scan, OWASP', model: 'opus' },
+  { type: 'superclaw:sc-debugger', capability: 'Bug analysis, root cause, error tracing', model: 'sonnet' },
+  { type: 'superclaw:sc-debugger-high', capability: 'Complex debugging, concurrency, race conditions', model: 'opus' },
+  { type: 'superclaw:sc-performance', capability: 'Performance profiling, bottleneck analysis', model: 'sonnet' },
+  { type: 'superclaw:sc-frontend', capability: 'UI/UX, React, dashboards, data visualization', model: 'sonnet' },
+  { type: 'superclaw:paper-reader', capability: 'Academic paper extraction and analysis', model: 'sonnet' },
+  { type: 'superclaw:literature-reviewer', capability: 'Multi-paper synthesis, research gaps', model: 'opus' },
+  { type: 'superclaw:research-assistant', capability: 'Citation lookup, BibTeX, quick literature search', model: 'haiku' },
+  { type: 'superclaw:data-analyst', capability: 'Data analysis, statistics, visualization, time-series', model: 'sonnet' },
+  { type: 'superclaw:experiment-tracker', capability: 'Experiment logging, parameter tracking, comparison', model: 'sonnet' },
+];
+
+// Dynamic team composition marker (no predefined agents — Claude picks from roster)
+const DYNAMIC_TEAM = 'dynamic';
 
 // --- Ecomode: task complexity → model suggestion ---
 // Inspired by Ruflo's Q-Learning router & OMC's ecomode
@@ -189,10 +245,9 @@ async function main() {
   const isUltrawork = skills.includes('superclaw:ultrawork') || actions.includes('execute');
   const isMandatory = isUltrawork || hasTeamToggle;
 
-  // Build effective team list: all matched teams, or DEFAULT_ULW_TEAM as fallback
-  const effectiveTeams = teamMatches.length > 0
-    ? teamMatches
-    : (isMandatory ? [DEFAULT_ULW_TEAM] : []);
+  // Build effective team list, or trigger dynamic composition
+  const useDynamic = teamMatches.length === 0 && isMandatory;
+  const effectiveTeams = teamMatches.length > 0 ? teamMatches : [];
 
   if (effectiveTeams.length > 0) {
     const modelSuggestion = suggestModel(cleaned);
@@ -244,6 +299,26 @@ async function main() {
       parts.push(`Ecomode suggestion: default model=${modelSuggestion.model} (${modelSuggestion.reason})`);
       parts.push('Use Agent tool with these subagent_types for optimal team delegation. Run independent agents in parallel.');
     }
+  } else if (useDynamic) {
+    // No predefined team matched but mandatory mode active → dynamic team composition
+    const modeLabel = isUltrawork ? 'ULW' : 'Team';
+    parts.push(`[SUPERCLAW DYNAMIC TEAM] No predefined team matched. You MUST compose a custom team.`);
+    parts.push(`MANDATORY DYNAMIC TEAM COMPOSITION (${modeLabel} Mode):`);
+    parts.push(``);
+    parts.push(`Analyze the user's request and pick 2-5 agents from this roster:`);
+    for (const agent of AGENT_ROSTER) {
+      parts.push(`  - ${agent.type} (${agent.model}): ${agent.capability}`);
+    }
+    parts.push(``);
+    parts.push(`Instructions:`);
+    parts.push(`  1. Read the user's request carefully`);
+    parts.push(`  2. Select the most relevant agents (2-5) and assign each a specific role for THIS task`);
+    parts.push(`  3. Spawn them using Agent tool — run independent agents in parallel`);
+    parts.push(`  4. After all agents complete: Read changed files yourself, run build/tests, verify independently`);
+    parts.push(`  5. Log results via sc_verification_log, store learnings via sc_learning_store`);
+    parts.push(``);
+    parts.push(`If any agent fails, escalate: haiku→sonnet→opus. Max 3 retries.`);
+    parts.push(`Do NOT stop until the user's request is FULFILLED.`);
   }
 
   // Single skill matches
