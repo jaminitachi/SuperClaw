@@ -44,7 +44,8 @@ const SC_KEYWORDS = [
 // Team patterns use functions for flexible Korean+English matching
 const TEAM_PATTERNS = [
   {
-    test: (s) => /(만들|구현|개발|build|implement|develop)/i.test(s) && /(앱|서비스|시스템|프로젝트|api|app|service|system)/i.test(s),
+    // Dev: 코드 작성, 만들어, 구현, 개발 — OR 조건 (단일 키워드로도 매칭)
+    test: (s) => /(만들|구현|개발|작성|코드|코딩|build|implement|develop|create|write code)/i.test(s),
     team: 'dev',
     description: 'Full Development Team',
     agents: [
@@ -55,7 +56,8 @@ const TEAM_PATTERNS = [
     ],
   },
   {
-    test: (s) => /(연구|조사|research|investigate)/i.test(s) && /(논문|주제|분야|paper|topic|field)/i.test(s),
+    // Research: 논문, 연구, 조사, 리서치 — OR 조건
+    test: (s) => /(연구|조사|논문|리서치|research|paper|investigate|survey|literature)/i.test(s),
     team: 'research',
     description: 'Research Team',
     agents: [
@@ -66,7 +68,7 @@ const TEAM_PATTERNS = [
     ],
   },
   {
-    test: (s) => /(리팩토링|리팩터|정리해|refactor|restructure|재구성)/i.test(s),
+    test: (s) => /(리팩토링|리팩터|정리해|refactor|restructure|재구성|클린업|cleanup)/i.test(s),
     team: 'refactor',
     description: 'Refactoring Team',
     agents: [
@@ -76,8 +78,8 @@ const TEAM_PATTERNS = [
     ],
   },
   {
-    // Bidirectional: "에러 고쳐" or "fix this bug" — order doesn't matter
-    test: (s) => /(고쳐|수정|해결|fix|troubleshoot)/i.test(s) && /(버그|에러|오류|crash|문제|bug|error)/i.test(s),
+    // Debug: 고쳐, 수정, 해결, 버그, 에러 — OR 조건 (하나만 있어도 매칭)
+    test: (s) => /(고쳐|수정해|해결|버그|에러|오류|crash|fix|debug|troubleshoot|bug|error)/i.test(s),
     team: 'debug',
     description: 'Debug Team',
     agents: [
@@ -87,7 +89,7 @@ const TEAM_PATTERNS = [
     ],
   },
   {
-    test: (s) => /(배포|출시|deploy|release|production|프로덕션)/i.test(s),
+    test: (s) => /(배포|출시|deploy|release|production|프로덕션|publish)/i.test(s),
     team: 'deploy',
     description: 'Deploy & Review Team',
     agents: [
@@ -96,7 +98,29 @@ const TEAM_PATTERNS = [
       { type: 'superclaw:sc-test-engineer', role: 'Integration tests', model: 'sonnet' },
     ],
   },
+  {
+    // Verify/Check: 체크, 확인, 검증, 테스트 — QA 팀
+    test: (s) => /(체크|확인해|검증|점검|verify|check|validate|audit|감사)/i.test(s),
+    team: 'verify',
+    description: 'Verification Team',
+    agents: [
+      { type: 'superclaw:sc-code-reviewer', role: 'Code review', model: 'opus' },
+      { type: 'superclaw:sc-test-engineer', role: 'Test & verify', model: 'sonnet' },
+      { type: 'superclaw:sc-security-reviewer', role: 'Security check', model: 'opus' },
+    ],
+  },
 ];
+
+// Fallback team when ULW is active but no specific team pattern matched
+const DEFAULT_ULW_TEAM = {
+  team: 'general',
+  description: 'General ULW Team',
+  agents: [
+    { type: 'superclaw:sc-architect', role: 'Analysis & planning', model: 'opus' },
+    { type: 'superclaw:sc-junior', role: 'Implementation', model: 'sonnet' },
+    { type: 'superclaw:sc-test-engineer', role: 'Verification', model: 'sonnet' },
+  ],
+};
 
 // --- Ecomode: task complexity → model suggestion ---
 // Inspired by Ruflo's Q-Learning router & OMC's ecomode
@@ -152,25 +176,56 @@ async function main() {
     return;
   }
 
-  const parts = [];
-
-  // Team composition context (takes priority for complex requests)
-  if (teamMatches.length > 0) {
-    const team = teamMatches[0]; // Use first match
-    const modelSuggestion = suggestModel(cleaned);
-    parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${team.description}" recommended.`);
-    parts.push(`Team composition for "${team.team}":`);
-    for (const agent of team.agents) {
-      parts.push(`  - ${agent.type} (${agent.model}): ${agent.role}`);
-    }
-    parts.push(`Ecomode suggestion: default model=${modelSuggestion.model} (${modelSuggestion.reason})`);
-    parts.push('Use Agent tool with these subagent_types for optimal team delegation. Run independent agents in parallel.');
-  }
-
-  // Single skill matches
+  // Extract skills and actions BEFORE team block (needed for ULW detection)
   const skills = [...new Set(matches.map(m => m.skill))];
   const actions = matches.map(m => m.action);
 
+  const parts = [];
+
+  // Detect ULW mode early (needed for fallback team logic)
+  const isUltrawork = skills.includes('superclaw:ultrawork') || actions.includes('execute');
+
+  // Team composition context (takes priority for complex requests)
+  // If ULW is active but no team pattern matched, use DEFAULT_ULW_TEAM as fallback
+  const effectiveTeam = teamMatches.length > 0
+    ? teamMatches[0]
+    : (isUltrawork ? DEFAULT_ULW_TEAM : null);
+
+  if (effectiveTeam) {
+    const team = effectiveTeam;
+    const modelSuggestion = suggestModel(cleaned);
+
+    if (isUltrawork) {
+      // ULW mode: inject mandatory execution plan, not just recommendations
+      parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${team.description}" activated.`);
+      parts.push(`MANDATORY EXECUTION PLAN (ULW Mode):`);
+      parts.push(`You MUST execute this plan. This is not a suggestion.`);
+      parts.push(``);
+      const steps = team.agents.map((agent, i) => {
+        const parallel = i > 0 && team.agents[i-1].model !== 'opus' ? ' (parallel with previous)' : '';
+        return `  Step ${i+1}: Spawn Agent with subagent_type="${agent.type}" model="${agent.model}"${parallel}`;
+      });
+      parts.push(...steps);
+      parts.push(`  Step ${team.agents.length + 1}: Read ALL changed files yourself (Read tool) — never trust agent claims`);
+      parts.push(`  Step ${team.agents.length + 2}: Run build/tests to verify`);
+      parts.push(`  Step ${team.agents.length + 3}: Log verification via sc_verification_log`);
+      parts.push(`  Step ${team.agents.length + 4}: Store learnings via sc_learning_store`);
+      parts.push(``);
+      parts.push(`If any step fails, escalate: haiku→sonnet→opus. Max 3 retries per step.`);
+      parts.push(`Do NOT stop until the user's completion condition is FULFILLED.`);
+    } else {
+      // Normal mode: strong recommendation with execution guidance
+      parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${team.description}" recommended.`);
+      parts.push(`Team composition for "${team.team}":`);
+      for (const agent of team.agents) {
+        parts.push(`  - ${agent.type} (${agent.model}): ${agent.role}`);
+      }
+      parts.push(`Ecomode suggestion: default model=${modelSuggestion.model} (${modelSuggestion.reason})`);
+      parts.push('Use Agent tool with these subagent_types for optimal team delegation. Run independent agents in parallel.');
+    }
+  }
+
+  // Single skill matches
   if (skills.length > 0) {
     // Ultrawork gets a special announcement
     let announcement = '';

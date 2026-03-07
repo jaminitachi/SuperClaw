@@ -20,31 +20,91 @@ function logError(context, err) {
 }
 
 /**
- * Load recent memories from SC's SQLite database.
- * Returns an array of summary strings.
+ * Detect current project from cwd or git remote.
+ */
+function detectProject() {
+  const cwd = process.cwd();
+  // Extract project name from cwd (last directory component)
+  const parts = cwd.split('/').filter(Boolean);
+  const dirName = parts[parts.length - 1] || '';
+
+  // Try git remote for more specific project identification
+  try {
+    const { execSync } = require('child_process');
+    const remote = execSync('git remote get-url origin 2>/dev/null', {
+      encoding: 'utf-8', timeout: 2000
+    }).trim();
+    // Extract repo name from URL: https://github.com/user/repo.git → repo
+    const match = remote.match(/\/([^/]+?)(?:\.git)?$/);
+    if (match) return { name: match[1].toLowerCase(), cwd, remote };
+  } catch {}
+
+  return { name: dirName.toLowerCase(), cwd, remote: null };
+}
+
+/**
+ * Load smart context from SC's SQLite database.
+ * Hierarchy: weekly-digests (compressed insights) → project-relevant learnings → recent knowledge
  */
 async function loadRecentMemories(dbPath) {
   const summaries = [];
   try {
-    // Dynamic import of better-sqlite3 for hook context
     const Database = (await import('better-sqlite3')).default;
     const db = new Database(dbPath, { readonly: true });
-    const rows = db
-      .prepare(
-        `SELECT subject, content, category, updated_at
-         FROM knowledge
-         ORDER BY updated_at DESC
-         LIMIT 10`
-      )
-      .all();
-    db.close();
-    if (rows.length > 0) {
+    const project = detectProject();
+
+    // Layer 1: Latest weekly digests (compressed insights from 1000+ learnings)
+    const digests = db.prepare(
+      `SELECT subject, content FROM knowledge
+       WHERE category = 'weekly-digest'
+       ORDER BY updated_at DESC LIMIT 3`
+    ).all();
+
+    if (digests.length > 0) {
+      summaries.push('Accumulated insights (weekly digest):');
+      for (const d of digests) {
+        // Each digest has ~10 numbered insights, take first 5 to save tokens
+        const lines = d.content.split('\n').filter(l => l.trim()).slice(0, 5);
+        summaries.push(`  [${d.subject}]`);
+        for (const l of lines) {
+          summaries.push(`    ${l}`);
+        }
+      }
+    }
+
+    // Layer 2: Project-relevant learnings (non-archived, matching current project)
+    if (project.name) {
+      const projectLearnings = db.prepare(
+        `SELECT content, category FROM learnings
+         WHERE (project LIKE ? OR content LIKE ?)
+         AND (tags NOT LIKE '%archived%' OR tags IS NULL OR tags = '')
+         ORDER BY created_at DESC LIMIT 5`
+      ).all(`%${project.name}%`, `%${project.name}%`);
+
+      if (projectLearnings.length > 0) {
+        summaries.push(`Project learnings (${project.name}):`);
+        for (const l of projectLearnings) {
+          summaries.push(`  - [${l.category}] ${l.content.slice(0, 150)}`);
+        }
+      }
+    }
+
+    // Layer 3: Recent non-digest knowledge (decisions, architecture, etc.)
+    const recentKnowledge = db.prepare(
+      `SELECT subject, content, category FROM knowledge
+       WHERE category != 'weekly-digest' AND category != 'session-summary'
+       ORDER BY updated_at DESC LIMIT 5`
+    ).all();
+
+    if (recentKnowledge.length > 0) {
       summaries.push('Recent memories:');
-      for (const r of rows) {
+      for (const r of recentKnowledge) {
         const cat = r.category ? ` [${r.category}]` : '';
         summaries.push(`  - ${r.subject}${cat}: ${String(r.content).slice(0, 120)}`);
       }
     }
+
+    db.close();
   } catch (e) { logError('loadRecentMemories', e); }
   return summaries;
 }
@@ -180,6 +240,36 @@ async function main() {
   const usageLines = await getUsageStats();
   if (usageLines.length > 0) {
     lines.push(...usageLines);
+  }
+
+  // Auto-consolidate learnings if overdue (> 7 days since last digest)
+  if (existsSync(dbPath)) {
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const db = new Database(dbPath, { readonly: true });
+      const lastDigest = db.prepare(
+        "SELECT updated_at FROM knowledge WHERE category = 'weekly-digest' ORDER BY updated_at DESC LIMIT 1"
+      ).get();
+      const unarchived = db.prepare(
+        "SELECT COUNT(*) as cnt FROM learnings WHERE tags NOT LIKE '%archived%' OR tags IS NULL OR tags = ''"
+      ).get();
+      db.close();
+
+      const daysSinceDigest = lastDigest
+        ? (Date.now() - new Date(lastDigest.updated_at).getTime()) / 86_400_000
+        : 999;
+
+      if (daysSinceDigest > 7 && unarchived.cnt > 20) {
+        lines.push(`Learning consolidation overdue (${Math.round(daysSinceDigest)}d, ${unarchived.cnt} unarchived). Running in background...`);
+        // Fire and forget — don't block session start
+        const { spawn: spawnChild } = await import('child_process');
+        const child = spawnChild('node', [join(scRoot, 'scripts', 'learning-consolidate.mjs')], {
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+      }
+    } catch (e) { logError('autoConsolidate', e); }
   }
 
   lines.push('Skills: telegram-control, mac-control, memory-mgr, heartbeat, automation-pipeline, cron-mgr, skill-forge, setup, dev-workflow, paper-review, experiment-log, lit-review, research-analysis');
