@@ -185,40 +185,56 @@ async function main() {
   // Detect ULW mode early (needed for fallback team logic)
   const isUltrawork = skills.includes('superclaw:ultrawork') || actions.includes('execute');
 
-  // Team composition context (takes priority for complex requests)
-  // If ULW is active but no team pattern matched, use DEFAULT_ULW_TEAM as fallback
-  const effectiveTeam = teamMatches.length > 0
-    ? teamMatches[0]
-    : (isUltrawork ? DEFAULT_ULW_TEAM : null);
+  // Build effective team list: all matched teams, or DEFAULT_ULW_TEAM as fallback
+  const effectiveTeams = teamMatches.length > 0
+    ? teamMatches
+    : (isUltrawork ? [DEFAULT_ULW_TEAM] : []);
 
-  if (effectiveTeam) {
-    const team = effectiveTeam;
+  if (effectiveTeams.length > 0) {
     const modelSuggestion = suggestModel(cleaned);
 
+    // Merge all matched teams' agents, deduplicating by agent type
+    const seenAgents = new Set();
+    const mergedAgents = [];
+    const teamNames = [];
+    for (const team of effectiveTeams) {
+      teamNames.push(team.description);
+      for (const agent of team.agents) {
+        if (!seenAgents.has(agent.type)) {
+          seenAgents.add(agent.type);
+          mergedAgents.push(agent);
+        }
+      }
+    }
+
+    const teamLabel = teamNames.join(' + ');
+
     if (isUltrawork) {
-      // ULW mode: inject mandatory execution plan, not just recommendations
-      parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${team.description}" activated.`);
+      // ULW mode: inject mandatory execution plan with ALL matched teams merged
+      parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${teamLabel}" activated.`);
       parts.push(`MANDATORY EXECUTION PLAN (ULW Mode):`);
       parts.push(`You MUST execute this plan. This is not a suggestion.`);
       parts.push(``);
-      const steps = team.agents.map((agent, i) => {
-        const parallel = i > 0 && team.agents[i-1].model !== 'opus' ? ' (parallel with previous)' : '';
-        return `  Step ${i+1}: Spawn Agent with subagent_type="${agent.type}" model="${agent.model}"${parallel}`;
+      const steps = mergedAgents.map((agent, i) => {
+        const parallel = i > 0 && mergedAgents[i-1].model !== 'opus' ? ' (parallel with previous)' : '';
+        return `  Step ${i+1}: Spawn Agent with subagent_type="${agent.type}" model="${agent.model}" role="${agent.role}"${parallel}`;
       });
       parts.push(...steps);
-      parts.push(`  Step ${team.agents.length + 1}: Read ALL changed files yourself (Read tool) — never trust agent claims`);
-      parts.push(`  Step ${team.agents.length + 2}: Run build/tests to verify`);
-      parts.push(`  Step ${team.agents.length + 3}: Log verification via sc_verification_log`);
-      parts.push(`  Step ${team.agents.length + 4}: Store learnings via sc_learning_store`);
+      parts.push(`  Step ${mergedAgents.length + 1}: Read ALL changed files yourself (Read tool) — never trust agent claims`);
+      parts.push(`  Step ${mergedAgents.length + 2}: Run build/tests to verify`);
+      parts.push(`  Step ${mergedAgents.length + 3}: Log verification via sc_verification_log`);
+      parts.push(`  Step ${mergedAgents.length + 4}: Store learnings via sc_learning_store`);
       parts.push(``);
       parts.push(`If any step fails, escalate: haiku→sonnet→opus. Max 3 retries per step.`);
       parts.push(`Do NOT stop until the user's completion condition is FULFILLED.`);
     } else {
-      // Normal mode: strong recommendation with execution guidance
-      parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${team.description}" recommended.`);
-      parts.push(`Team composition for "${team.team}":`);
-      for (const agent of team.agents) {
-        parts.push(`  - ${agent.type} (${agent.model}): ${agent.role}`);
+      // Normal mode: show all matched teams with their agents
+      parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${teamLabel}" recommended.`);
+      for (const team of effectiveTeams) {
+        parts.push(`Team "${team.team}":`);
+        for (const agent of team.agents) {
+          parts.push(`  - ${agent.type} (${agent.model}): ${agent.role}`);
+        }
       }
       parts.push(`Ecomode suggestion: default model=${modelSuggestion.model} (${modelSuggestion.reason})`);
       parts.push('Use Agent tool with these subagent_types for optimal team delegation. Run independent agents in parallel.');
