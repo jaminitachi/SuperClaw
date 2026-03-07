@@ -171,7 +171,10 @@ async function main() {
     }
   }
 
-  if (matches.length === 0 && teamMatches.length === 0) {
+  // Check for team toggle keyword ("팀", "team") before early return
+  const hasTeamToggle = /(?:\bteam\b|팀)/i.test(cleaned);
+
+  if (matches.length === 0 && teamMatches.length === 0 && !hasTeamToggle) {
     console.log(JSON.stringify({ continue: true }));
     return;
   }
@@ -182,13 +185,14 @@ async function main() {
 
   const parts = [];
 
-  // Detect ULW mode early (needed for fallback team logic)
+  // Detect ULW mode and mandatory flag
   const isUltrawork = skills.includes('superclaw:ultrawork') || actions.includes('execute');
+  const isMandatory = isUltrawork || hasTeamToggle;
 
   // Build effective team list: all matched teams, or DEFAULT_ULW_TEAM as fallback
   const effectiveTeams = teamMatches.length > 0
     ? teamMatches
-    : (isUltrawork ? [DEFAULT_ULW_TEAM] : []);
+    : (isMandatory ? [DEFAULT_ULW_TEAM] : []);
 
   if (effectiveTeams.length > 0) {
     const modelSuggestion = suggestModel(cleaned);
@@ -209,10 +213,11 @@ async function main() {
 
     const teamLabel = teamNames.join(' + ');
 
-    if (isUltrawork) {
-      // ULW mode: inject mandatory execution plan with ALL matched teams merged
+    if (isMandatory) {
+      // Mandatory mode (ULW or "팀/team" keyword): inject execution plan
+      const modeLabel = isUltrawork ? 'ULW' : 'Team';
       parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${teamLabel}" activated.`);
-      parts.push(`MANDATORY EXECUTION PLAN (ULW Mode):`);
+      parts.push(`MANDATORY EXECUTION PLAN (${modeLabel} Mode):`);
       parts.push(`You MUST execute this plan. This is not a suggestion.`);
       parts.push(``);
       const steps = mergedAgents.map((agent, i) => {
