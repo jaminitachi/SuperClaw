@@ -3,24 +3,36 @@ import { healthColor, dim, RESET } from '../colors.mjs';
 export function renderRateLimits(usage) {
   if (!usage) return null;
 
+  const isStale = !!usage.stale;
   const parts = [];
 
   if (usage.fiveHourPercent != null) {
-    const color = healthColor(usage.fiveHourPercent, 60, 85);
-    let text = `5h:${color}${usage.fiveHourPercent}%${RESET}`;
-    if (usage.fiveHourReset) {
-      text += dim(`(${formatTimeRemaining(usage.fiveHourReset)})`);
+    if (isStale) {
+      // Stale data — show entirely dimmed with ~ prefix
+      let text = dim(`5h:~${usage.fiveHourPercent}%`);
+      parts.push(text);
+    } else {
+      const color = healthColor(usage.fiveHourPercent, 60, 85);
+      let text = `5h:${color}${usage.fiveHourPercent}%${RESET}`;
+      if (usage.fiveHourReset) {
+        text += dim(`(${formatTimeRemaining(usage.fiveHourReset)})`);
+      }
+      parts.push(text);
     }
-    parts.push(text);
   }
 
   if (usage.weeklyPercent != null) {
-    const color = healthColor(usage.weeklyPercent, 60, 85);
-    let text = `wk:${color}${usage.weeklyPercent}%${RESET}`;
-    if (usage.weeklyReset) {
-      text += dim(`(${formatTimeRemaining(usage.weeklyReset)})`);
+    if (isStale) {
+      let text = dim(`wk:~${usage.weeklyPercent}%`);
+      parts.push(text);
+    } else {
+      const color = healthColor(usage.weeklyPercent, 60, 85);
+      let text = `wk:${color}${usage.weeklyPercent}%${RESET}`;
+      if (usage.weeklyReset) {
+        text += dim(`(${formatTimeRemaining(usage.weeklyReset)})`);
+      }
+      parts.push(text);
     }
-    parts.push(text);
   }
 
   return parts.length > 0 ? parts.join(' ') : null;

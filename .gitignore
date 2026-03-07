@@ -25,3 +25,6 @@ superclaw.json
 # Logs
 *.log
 superclaw.json.bak
+
+# Usage report (contains PII — instance-specific)
+USAGE-REPORT.md

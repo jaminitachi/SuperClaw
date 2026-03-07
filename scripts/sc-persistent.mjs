@@ -1,32 +1,60 @@
 #!/usr/bin/env node
 /**
- * Stop hook — prevents premature exit when automation pipelines are running.
+ * Stop hook — Sisyphus pattern: prevents premature exit when
+ * ultrawork/ralph/autopilot modes or pipelines are active.
+ * Create ~/.claude/.sc/state/{mode}-state.json to block exit.
+ * Use /cancel skill or delete state files to allow exit.
  */
 import { readStdin } from './lib/stdin.mjs';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
 async function main() {
-  await readStdin(2000);
+  const raw = await readStdin(2000);
+  let input = {};
+  try { input = JSON.parse(raw); } catch {}
 
-  // Check if any SuperClaw pipelines are actively running
-  const stateFile = join(homedir(), 'superclaw', 'data', 'pipeline-state.json');
-  let hasActivePipeline = false;
+  // Prevent infinite loop — if stop_hook_active is already set, allow exit
+  if (input?.stop_hook_active) {
+    console.log(JSON.stringify({ continue: true }));
+    return;
+  }
 
+  const reasons = [];
+
+  // Check 1: Active mode state files (Sisyphus pattern)
+  const stateDir = join(homedir(), '.claude', '.sc', 'state');
   try {
-    if (existsSync(stateFile)) {
-      const state = JSON.parse(readFileSync(stateFile, 'utf-8'));
-      hasActivePipeline = state.active === true;
+    if (existsSync(stateDir)) {
+      const files = readdirSync(stateDir).filter(f => f.endsWith('-state.json'));
+      for (const f of files) {
+        try {
+          const state = JSON.parse(readFileSync(join(stateDir, f), 'utf-8'));
+          if (state.active) {
+            const mode = f.replace('-state.json', '');
+            reasons.push(`${mode} mode is active (tasks: ${state.pendingTasks ?? '?'})`);
+          }
+        } catch {}
+      }
     }
   } catch {}
 
-  if (hasActivePipeline) {
+  // Check 2: Active pipeline
+  const pipelineFile = join(homedir(), 'superclaw', 'data', 'pipeline-state.json');
+  try {
+    if (existsSync(pipelineFile)) {
+      const state = JSON.parse(readFileSync(pipelineFile, 'utf-8'));
+      if (state.active) reasons.push('pipeline is running');
+    }
+  } catch {}
+
+  if (reasons.length > 0) {
     console.log(JSON.stringify({
-      continue: true,
+      decision: 'block',
       hookSpecificOutput: {
         hookEventName: 'Stop',
-        additionalContext: 'SuperClaw: Active pipeline detected. Complete the pipeline before stopping, or cancel with /sc-status.',
+        additionalContext: `SuperClaw Sisyphus: ${reasons.join(', ')}. Continue working on pending tasks. To force exit, delete state files in ~/.claude/.sc/state/ or use /cancel.`,
       },
     }));
   } else {

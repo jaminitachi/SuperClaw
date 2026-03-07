@@ -74,7 +74,7 @@ async function main() {
     const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
 
     // Check if ultrawork mode is active
-    const ultraworkStatePath = path.join(os.homedir(), 'superclaw', 'data', 'ultrawork-state.json');
+    const ultraworkStatePath = path.join(os.homedir(), '.claude', '.sc', 'state', 'ultrawork-state.json');
     let ultraworkActive = false;
     let state = null;
     try {

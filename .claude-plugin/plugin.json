@@ -1,7 +1,7 @@
 {
   "name": "superclaw",
-  "version": "2.0.0",
-  "description": "Claude Code AI plugin — Mac control, Telegram, heartbeat, memory, research workflows",
+  "version": "3.0.0",
+  "description": "Claude Code AI plugin — 41 MCP tools, 29 agents, 15 skills, Mac automation, Telegram remote control, persistent memory, multi-agent orchestration",
   "author": {
     "name": "jaminitachi"
   },

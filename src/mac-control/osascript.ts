@@ -6,6 +6,7 @@ const execFileAsync = promisify(execFile);
 export async function runAppleScript(script: string, timeoutMs = 10000): Promise<string> {
   const { stdout } = await execFileAsync('osascript', ['-e', script], {
     timeout: timeoutMs,
+    killSignal: 'SIGKILL',
   });
   return stdout.trim();
 }
@@ -13,6 +14,7 @@ export async function runAppleScript(script: string, timeoutMs = 10000): Promise
 export async function runJXA(script: string, timeoutMs = 10000): Promise<string> {
   const { stdout } = await execFileAsync('osascript', ['-l', 'JavaScript', '-e', script], {
     timeout: timeoutMs,
+    killSignal: 'SIGKILL',
   });
   return stdout.trim();
 }

@@ -8,6 +8,35 @@ const execFileAsync = promisify(execFile);
 
 const PEEKABOO_PATH = process.env.PEEKABOO_PATH ?? '/opt/homebrew/bin/peekaboo';
 
+// Minimum idle seconds before UI-interactive commands are allowed.
+// Commands like click, type, hotkey move the mouse/keyboard — block if user is active.
+const IDLE_THRESHOLD_SECS = Number(process.env.SC_IDLE_THRESHOLD ?? 120);
+
+// Commands that interfere with user input (move mouse, press keys, steal focus)
+const INTERACTIVE_COMMANDS = new Set(['click', 'type', 'hotkey']);
+
+async function getUserIdleSeconds(): Promise<number> {
+  try {
+    const { stdout } = await execFileAsync('ioreg', ['-c', 'IOHIDSystem', '-d', '4'], {
+      timeout: 3000,
+    });
+    const match = stdout.match(/"HIDIdleTime"\s*=\s*(\d+)/);
+    if (match) return Number(match[1]) / 1_000_000_000;
+  } catch { /* fall through */ }
+  return Infinity; // if we can't read, assume idle (don't block)
+}
+
+async function assertUserIdle(command: string): Promise<void> {
+  if (!INTERACTIVE_COMMANDS.has(command)) return;
+  const idle = await getUserIdleSeconds();
+  if (idle < IDLE_THRESHOLD_SECS) {
+    throw new Error(
+      `[SC_USER_ACTIVE] User is actively using the Mac (idle ${Math.round(idle)}s < ${IDLE_THRESHOLD_SECS}s threshold). ` +
+      `Refusing to run "${command}" — try again later or wait until the user is idle.`
+    );
+  }
+}
+
 export interface ScreenshotResult {
   path: string;
   width?: number;
@@ -30,6 +59,7 @@ export interface SeeResult {
 async function runPeekaboo(args: string[], timeoutMs = 15000): Promise<string> {
   const { stdout } = await execFileAsync(PEEKABOO_PATH, args, {
     timeout: timeoutMs,
+    killSignal: 'SIGKILL',
     maxBuffer: 10 * 1024 * 1024,
   });
   return stdout.trim();
@@ -81,6 +111,7 @@ export async function see(options?: {
 }
 
 export async function click(target: string | { x: number; y: number }): Promise<void> {
+  await assertUserIdle('click');
   const args = ['click'];
   if (typeof target === 'string') {
     args.push('--element', target);
@@ -91,10 +122,12 @@ export async function click(target: string | { x: number; y: number }): Promise<
 }
 
 export async function typeText(text: string): Promise<void> {
+  await assertUserIdle('type');
   await runPeekaboo(['type', '--text', text]);
 }
 
 export async function hotkey(keys: string): Promise<void> {
+  await assertUserIdle('hotkey');
   await runPeekaboo(['hotkey', '--keys', keys]);
 }
 

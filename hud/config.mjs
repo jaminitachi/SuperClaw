@@ -66,7 +66,11 @@ const PRESETS = {
     },
   },
   focused: {
-    // Uses defaults (already the default preset)
+    elements: {
+      showCache: false,
+      showCallCounts: false,
+      activeSkills: false,
+    },
   },
   full: {
     maxOutputLines: 12,

@@ -1,12 +1,30 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { exec } from 'child_process';
+import { homedir } from 'os';
+import { spawn, exec, execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
+
+const IDLE_THRESHOLD_SECS = Number(process.env.SC_IDLE_THRESHOLD ?? 120);
+
+async function getUserIdleSeconds(): Promise<number> {
+  try {
+    const { stdout } = await execFileAsync('ioreg', ['-c', 'IOHIDSystem', '-d', '4'], {
+      timeout: 3000,
+    });
+    const match = stdout.match(/"HIDIdleTime"\s*=\s*(\d+)/);
+    if (match) return Number(match[1]) / 1_000_000_000;
+  } catch { /* fall through */ }
+  return Infinity;
+}
 
 export interface CronJob {
   name: string;
   schedule: string;
   command: string;
   enabled: boolean;
+  requiresIdle?: boolean;
   lastRun?: string;
   nextRun?: string;
   createdAt: string;
@@ -24,7 +42,7 @@ export class CronScheduler {
 
   // --- Public API ---
 
-  addJob(name: string, schedule: string, command: string): CronJob {
+  addJob(name: string, schedule: string, command: string, requiresIdle = false): CronJob {
     if (this.jobs.some((j) => j.name === name)) {
       throw new Error(`Cron job "${name}" already exists`);
     }
@@ -36,6 +54,7 @@ export class CronScheduler {
       schedule,
       command,
       enabled: true,
+      requiresIdle,
       createdAt: new Date().toISOString(),
     };
     job.nextRun = this.computeNextRun(job.schedule);
@@ -233,22 +252,113 @@ export class CronScheduler {
     }
   }
 
-  private executeJob(job: CronJob): void {
-    job.lastRun = new Date().toISOString();
-    job.nextRun = this.computeNextRun(job.schedule);
-    this.save();
+  /**
+   * Acquire a cross-process lock for a job. Returns true if lock acquired.
+   * Multiple sc-bridge instances share cron-jobs.json — this prevents
+   * the same job from executing simultaneously across instances.
+   */
+  private acquireJobLock(jobName: string): boolean {
+    const lockDir = join(homedir(), '.claude', '.sc', 'cron-locks');
+    mkdirSync(lockDir, { recursive: true });
+    const lockFile = join(lockDir, `${jobName.replace(/[^a-zA-Z0-9_-]/g, '_')}.lock`);
 
+    try {
+      if (existsSync(lockFile)) {
+        const content = readFileSync(lockFile, 'utf-8').trim();
+        const lockTime = new Date(content).getTime();
+        const age = Date.now() - lockTime;
+        // Lock is still valid (less than 5 minutes old)
+        if (age < 300_000) {
+          return false;
+        }
+        // Stale lock — remove it
+      }
+      writeFileSync(lockFile, new Date().toISOString(), 'utf-8');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private releaseJobLock(jobName: string): void {
+    try {
+      const lockFile = join(
+        homedir(), '.claude', '.sc', 'cron-locks',
+        `${jobName.replace(/[^a-zA-Z0-9_-]/g, '_')}.lock`
+      );
+      unlinkSync(lockFile);
+    } catch {}
+  }
+
+  private executeJob(job: CronJob): void {
     if (job.command.startsWith('pipeline:')) {
       const pipelineName = job.command.slice('pipeline:'.length).trim();
       console.error(`[cron] Would run pipeline "${pipelineName}" (integration pending)`);
       return;
     }
 
+    // Cross-instance lock: prevent duplicate execution
+    if (!this.acquireJobLock(job.name)) {
+      console.error(`[cron] Job "${job.name}" skipped — already running in another instance`);
+      return;
+    }
+
+    // If job requires idle, check user activity — skip entirely if active
+    if (job.requiresIdle) {
+      getUserIdleSeconds().then((idle) => {
+        if (idle < IDLE_THRESHOLD_SECS) {
+          console.error(
+            `[cron] Job "${job.name}" skipped — user active (idle ${Math.round(idle)}s < ${IDLE_THRESHOLD_SECS}s). Will try next scheduled time.`
+          );
+          this.releaseJobLock(job.name);
+          return;
+        }
+        this.runCommand(job);
+      });
+      return;
+    }
+
+    this.runCommand(job);
+  }
+
+  private runCommand(job: CronJob): void {
+    job.lastRun = new Date().toISOString();
+    job.nextRun = this.computeNextRun(job.schedule);
+    this.save();
+
     console.error(`[cron] Executing job "${job.name}": ${job.command}`);
-    exec(job.command, { timeout: 300_000 }, (err, stdout, stderr) => {
-      if (err) {
-        console.error(`[cron] Job "${job.name}" failed:`, err.message);
-        if (stderr) console.error(`[cron] stderr: ${stderr}`);
+
+    // Use spawn with detached:true so the child gets its own process group.
+    // On timeout, kill the entire process group with -pid SIGKILL — this
+    // prevents orphan zombies (claude, python, osascript, peekaboo, etc.).
+    const child = spawn('/bin/sh', ['-c', job.command], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
+    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      try {
+        // Negative PID kills the entire process group
+        process.kill(-child.pid!, 'SIGKILL');
+      } catch { /* already dead */ }
+      this.releaseJobLock(job.name);
+      console.error(`[cron] Job "${job.name}" killed — exceeded 5 min timeout (process group ${child.pid})`);
+    }, 300_000);
+
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      this.releaseJobLock(job.name);
+      if (killed) return; // already logged
+      if (code !== 0) {
+        console.error(`[cron] Job "${job.name}" failed (exit ${code})`);
+        if (stderr) console.error(`[cron] stderr: ${stderr.slice(0, 500)}`);
       } else {
         console.error(`[cron] Job "${job.name}" completed`);
         if (stdout) console.error(`[cron] stdout: ${stdout.slice(0, 500)}`);

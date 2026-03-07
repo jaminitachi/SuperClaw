@@ -3,20 +3,20 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { execSync } from 'child_process';
 
-const CACHE_TTL_SUCCESS = 30_000;  // 30s
-const CACHE_TTL_FAILURE = 15_000;  // 15s
+const CACHE_TTL = 30_000;           // 30s — always retry every 30 seconds
+const CACHE_TTL_STALE = 900_000;    // 15 min — max age for stale lastGood data
 
 let cachedUsage = null;
 let cacheTimestamp = 0;
 let cacheSuccess = false;
+let lastGoodData = null;  // stale-while-error: keep last known good usage
 
 const CACHE_FILE = join(homedir(), '.claude', '.sc', '.usage-cache.json');
 
 export async function getUsage() {
-  // Check in-memory cache
+  // Check in-memory cache (always 30s)
   const now = Date.now();
-  const ttl = cacheSuccess ? CACHE_TTL_SUCCESS : CACHE_TTL_FAILURE;
-  if (cachedUsage && (now - cacheTimestamp) < ttl) {
+  if (cachedUsage && (now - cacheTimestamp) < CACHE_TTL) {
     return cachedUsage;
   }
 
@@ -24,11 +24,18 @@ export async function getUsage() {
   try {
     if (existsSync(CACHE_FILE)) {
       const cached = JSON.parse(readFileSync(CACHE_FILE, 'utf-8'));
-      const fileTtl = cached.success ? CACHE_TTL_SUCCESS : CACHE_TTL_FAILURE;
-      if ((now - cached.timestamp) < fileTtl) {
+      // Restore last known good data for stale-while-error (survives across process restarts)
+      if (cached.lastGood && (now - cached.timestamp) < CACHE_TTL_STALE) {
+        lastGoodData = cached.lastGood;
+      }
+      if ((now - cached.timestamp) < CACHE_TTL) {
         cachedUsage = cached.data;
         cacheTimestamp = cached.timestamp;
         cacheSuccess = cached.success;
+        // On a cached failure, serve stale data marked as stale
+        if (!cachedUsage && lastGoodData) {
+          return { ...lastGoodData, stale: true };
+        }
         return cachedUsage;
       }
     }
@@ -37,7 +44,7 @@ export async function getUsage() {
   // Fetch from API
   try {
     const token = getOAuthToken();
-    if (!token) return null;
+    if (!token) return lastGoodData ? { ...lastGoodData, stale: true } : null;
 
     const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
       headers: {
@@ -62,22 +69,25 @@ export async function getUsage() {
           if (retryResponse.ok) {
             const data = await retryResponse.json();
             const usage = parseUsageResponse(data);
+            lastGoodData = usage;
             saveCache(usage, true);
             return usage;
           }
         }
       }
+      // API error (429, 5xx, etc.) — return stale lastGood with stale flag
       saveCache(null, false);
-      return null;
+      return lastGoodData ? { ...lastGoodData, stale: true } : null;
     }
 
     const data = await response.json();
     const usage = parseUsageResponse(data);
+    lastGoodData = usage;
     saveCache(usage, true);
     return usage;
   } catch {
     saveCache(null, false);
-    return null;
+    return lastGoodData ? { ...lastGoodData, stale: true } : null;
   }
 }
 
@@ -184,11 +194,18 @@ function saveCache(data, success) {
   cachedUsage = data;
   cacheTimestamp = Date.now();
   cacheSuccess = success;
+  if (data) lastGoodData = data;
 
   try {
     const dir = join(homedir(), '.claude', '.sc');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(CACHE_FILE, JSON.stringify({ data, timestamp: cacheTimestamp, success }), 'utf-8');
+    // Persist lastGood separately so new processes can restore stale data on API errors
+    writeFileSync(CACHE_FILE, JSON.stringify({
+      data,
+      timestamp: cacheTimestamp,
+      success,
+      lastGood: lastGoodData ?? data,
+    }), 'utf-8');
   } catch {}
 }
 

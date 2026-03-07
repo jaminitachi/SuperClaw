@@ -28,8 +28,12 @@ Ultrawork는 유저의 고수준 목표를 받아서, 정확하게 의도대로 
 1. **완료 조건 확정** — 유저에게 묻거나 유저의 말에서 추출
    - 예: "TypeScript 에러 0개, 테스트 통과, 새 경고 없음"
    - 모호하면 반드시 물어볼 것. 추측 금지.
-2. **TODO 생성** — TaskCreate로 작업 목록 생성 (RULE 1 준수)
-3. **현재 상태 파악** — 관련 파일 읽기, 기존 코드 구조 이해
+2. **TODO 생성** — TaskCreate로 작업 목록 생성
+3. **Sisyphus 활성화** — 세션 종료 방지를 위해 상태 파일 생성:
+   ```bash
+   mkdir -p ~/.claude/.sc/state && echo '{"active":true,"startedAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ~/.claude/.sc/state/ultrawork-state.json
+   ```
+4. **현재 상태 파악** — 관련 파일 읽기, 기존 코드 구조 이해
 
 ## Phase 1: 계획
 
@@ -73,11 +77,16 @@ Ultrawork는 유저의 고수준 목표를 받아서, 정확하게 의도대로 
 
 ## Phase 3: 최종 보고
 
-- iterations 수, 실행한 작업 수
-- 검증 결과 (통과/실패)
-- 완료 조건 상태: FULFILLED / PARTIAL
-- 남은 항목 (있다면)
-- 증거 (빌드/테스트 출력)
+1. **Sisyphus 해제** — 상태 파일 삭제:
+   ```bash
+   rm -f ~/.claude/.sc/state/ultrawork-state.json
+   ```
+2. 보고 내용:
+   - iterations 수, 실행한 작업 수
+   - 검증 결과 (통과/실패)
+   - 완료 조건 상태: FULFILLED / PARTIAL
+   - 남은 항목 (있다면)
+   - 증거 (빌드/테스트 출력)
 </Execution_Policy>
 
 <Output_Format>

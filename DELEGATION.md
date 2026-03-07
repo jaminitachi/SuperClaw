@@ -79,5 +79,17 @@ When a task falls outside SuperClaw's specialized domain, use these agent mappin
 
 SuperClaw has its own ultrawork mode for parallel agent execution:
 - **ultrawork**: Multiple SC agents run concurrently on task pool
+- **ultrawork --opus**: 모든 에이전트를 opus 모델로 강제 실행 (haiku/sonnet 라우팅 무시)
 - **orchestration**: sc-prometheus (planner) -> sc-metis (coordinator) -> sc-atlas/sc-junior (workers)
 - **verification**: All tasks verified by sc-verifier before completion
+
+### Opus Override Mode
+
+Triggered by: `ulw --opus`, `ultrawork opus`, `전부 opus`, `모두 opus`, `opus로`
+
+When active:
+- ALL agent dispatches use `model: "opus"` regardless of routing table
+- `[OPUS OVERRIDE]` tag is injected into every agent prompt
+- sc-atlas propagates the override to all sub-dispatches
+- Category routing model selection is bypassed (agent selection still applies)
+- Cost: significantly higher token usage — use only when maximum reasoning quality needed

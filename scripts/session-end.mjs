@@ -310,6 +310,55 @@ async function saveToMemoryDb(learnings) {
 }
 
 /**
+ * Sync key insights to SC notepad working memory.
+ * Accepts either a structured learnings object (from LLM) or a plain string
+ * array (from regex fallback) for backward compatibility.
+ */
+function syncToScNotepad(learnings) {
+  if (!learnings) return;
+
+  try {
+    const notepadPath = join(homedir(), '.claude', '.sc', 'notepad.json');
+    const notepadDir = join(homedir(), '.claude', '.sc');
+
+    let notepad = { priority: '', working: [], manual: [] };
+    if (existsSync(notepadPath)) {
+      notepad = JSON.parse(readFileSync(notepadPath, 'utf-8'));
+    } else {
+      mkdirSync(notepadDir, { recursive: true });
+    }
+
+    if (!Array.isArray(notepad.working)) {
+      notepad.working = [];
+    }
+
+    let entry;
+    if (Array.isArray(learnings)) {
+      // Backward-compatible path: plain string array from regex fallback
+      if (learnings.length === 0) return;
+      entry = {
+        timestamp: new Date().toISOString(),
+        content: `[SuperClaw Session] ${learnings.join('; ')}`,
+      };
+    } else {
+      // Structured learnings object from LLM
+      entry = {
+        timestamp: new Date().toISOString(),
+        summary: learnings.summary,
+        decisions: learnings.decisions,
+        bugs_fixed: learnings.bugs_fixed,
+        configs_changed: learnings.configs_changed,
+        learnings: learnings.learnings,
+        tools_used: learnings.tools_used,
+      };
+    }
+
+    notepad.working.push(entry);
+    writeFileSync(notepadPath, JSON.stringify(notepad, null, 2), 'utf-8');
+  } catch (e) { logError('syncToScNotepad', e); }
+}
+
+/**
  * Trigger Obsidian incremental sync if configured.
  */
 async function triggerObsidianSync() {
@@ -391,14 +440,27 @@ async function main() {
     data = {};
   }
 
+  // Diagnostic: log what SessionEnd receives (always, not just errors)
+  try {
+    const ts = new Date().toISOString();
+    const keys = data ? Object.keys(data).join(',') : 'none';
+    const hasTranscript = !!data?.transcript_path;
+    const isDaemon = process.env.SUPERCLAW_DAEMON === '1';
+    const line = `[${ts}] [INFO] [session-end] keys=${keys} transcript=${hasTranscript} daemon=${isDaemon}\n`;
+    mkdirSync(join(homedir(), 'superclaw', 'data', 'logs'), { recursive: true });
+    appendFileSync(HOOK_LOG_PATH, line);
+  } catch {}
+
+  // Always run Obsidian sync regardless of transcript availability
+  await triggerObsidianSync();
+
   // Skip learning extraction for daemon-spawned sessions (Telegram)
-  // Only run when user explicitly ends a session (e.g., /new command)
   if (process.env.SUPERCLAW_DAEMON === '1') {
     console.log(JSON.stringify({ continue: true }));
     return;
   }
 
-  // Read transcript
+  // Read transcript — learning extraction requires transcript, but Obsidian sync already ran above
   const transcript = readTranscript(data);
   if (!transcript.transcriptText) {
     console.log(JSON.stringify({ continue: true }));
@@ -424,10 +486,10 @@ async function main() {
   }
 
   if (learnings) {
+    syncToScNotepad(learnings);
     await saveToMemoryDb(learnings);
   }
 
-  await triggerObsidianSync();
   console.log(JSON.stringify({ continue: true }));
 }
 

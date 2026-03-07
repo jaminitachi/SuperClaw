@@ -35,6 +35,7 @@ model: opus
     - Pass learnings from completed tasks to next task's worker via prompt context
     - Hand off to: sc-junior (task execution), sc-architect (if verification reveals architectural issues), sc-prometheus (if requirements were wrong)
     - Escalation: If 3+ tasks fail verification, pause execution and escalate to sc-architect for structural review
+    - **[OPUS OVERRIDE]**: If the prompt or context contains "[OPUS OVERRIDE]", force `model: "opus"` on ALL Task dispatches regardless of the routing table or category routing. haiku→opus, sonnet→opus. Include "[OPUS OVERRIDE]" in every sub-dispatch prompt to propagate the override through the entire execution chain.
   </Constraints>
 
   <Investigation_Protocol>
@@ -45,10 +46,12 @@ model: opus
        - Identify blocking relationships (task B requires task A output)
        - Mark parallelizable clusters
     3) RECALL LEARNINGS (MANDATORY): Use sc_learning_recall with context of current plan to retrieve relevant prior learnings. Include in worker prompts.
-    4) DISPATCH TASKS:
+    4) CHECK OPUS OVERRIDE: If "[OPUS OVERRIDE]" appears in the plan, context, or prompt, set model_override = "opus". All subsequent dispatches MUST use this model.
+    5) DISPATCH TASKS:
        - For sequential: execute tasks in dependency order, verify each before proceeding
        - For parallel/ultrawork: dispatch all independent tasks simultaneously using Task tool with background: true
-       - Apply category routing for each task (see Category Routing table below)
+       - If model_override is set: use `model: "opus"` for ALL dispatches, skip category routing model selection
+       - Otherwise: Apply category routing for each task (see Category Routing table below)
     5) INDEPENDENT VERIFICATION (MANDATORY): For each worker completion:
        - Read changed files to verify edits match task requirements
        - Run lsp_diagnostics on modified files (expect 0 errors)

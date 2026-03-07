@@ -472,7 +472,7 @@ async function registerPlugin() {
 async function main() {
   console.log(`
 \x1b[36m╔══════════════════════════════════════════╗
-║       SuperClaw Setup Wizard v2.0        ║
+║       SuperClaw Setup Wizard v3.0        ║
 ║     Claude Code AI Plugin                ║
 ╚══════════════════════════════════════════╝\x1b[0m
 `);
@@ -541,8 +541,8 @@ async function main() {
     - "search memory for..." (persistent memory)
     - "send to phone: hello" (Telegram)
 
-  MCP Tools: 31 tools across 3 servers
-  Agents: 39 specialists across 6 domains
+  MCP Tools: 41 tools across 3 servers
+  Agents: 29 specialists across 6 domains
   Skills: 15 auto-detected capabilities
 `);
   } else {

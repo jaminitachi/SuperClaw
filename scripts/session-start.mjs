@@ -4,7 +4,7 @@
  * notepad priority context into the session.
  */
 import { readStdin } from './lib/stdin.mjs';
-import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { todosPath } from './lib/session.mjs';
@@ -17,32 +17,6 @@ function logError(context, err) {
     const msg = err instanceof Error ? err.message : String(err);
     appendFileSync(HOOK_LOG_PATH, `[${ts}] [ERROR] [session-start/${context}] ${msg}\n`);
   } catch {}
-}
-
-function getDelegationProtocol() {
-  return `[SuperClaw Delegation Protocol v2.0]
-
-You are an orchestrator with specialist agents. Delegate tasks via: Task(subagent_type="superclaw:<agent>", model="<model>", prompt="<task>")
-
-RULES:
-1. Delegate ALL code changes to agents. Never write code directly.
-2. Delegate debugging to sc-debugger.
-3. Verify completion with sc-verifier before claiming done.
-4. Use parallel dispatch for independent tasks.
-5. Check system state before making claims (run commands to verify).
-
-AGENT ROUTING:
-- Code: sc-junior (simple), sc-atlas (standard), sc-architect (complex), sc-frontend (UI)
-- Debug: sc-debugger
-- Review: sc-code-reviewer, sc-security-reviewer, sc-performance
-- Memory: memory-curator
-- Research: paper-reader, literature-reviewer, experiment-tracker, data-analyst
-- Infra: mac-control, system-monitor, heartbeat-mgr, cron-mgr, pipeline-builder
-- Orchestration: sc-prometheus (plan), sc-metis (gaps), sc-momus (validate), sc-atlas (decompose)
-
-MODEL SELECTION: haiku (trivial) | sonnet (standard, DEFAULT) | opus (complex reasoning)
-
-TOOLS: sc_memory_store/search/recall, sc_notepad_write/read/clear, sc_send_message, sc_screenshot, sc_status`;
 }
 
 /**
@@ -84,21 +58,19 @@ function loadScPriorityContext() {
     const notepadPath = join(homedir(), '.claude', '.sc', 'notepad.json');
     if (existsSync(notepadPath)) {
       const notepad = JSON.parse(readFileSync(notepadPath, 'utf-8'));
+
+      // Auto-cleanup: keep only last 10 working entries from last 3 days
+      if (Array.isArray(notepad.working) && notepad.working.length > 10) {
+        const cutoff = new Date(Date.now() - 3 * 86_400_000).toISOString();
+        let recent = notepad.working.filter(e => (e.timestamp || '') >= cutoff);
+        if (recent.length > 10) recent = recent.slice(-10);
+        notepad.working = recent;
+        try { writeFileSync(notepadPath, JSON.stringify(notepad, null, 2), 'utf-8'); } catch {}
+      }
+
       if (notepad.priority && notepad.priority.trim()) {
         lines.push('SC Priority Context:');
         lines.push(`  ${notepad.priority.trim()}`);
-      }
-      // Read notepad entries (new scratchpad format)
-      if (notepad.entries && typeof notepad.entries === 'object') {
-        const keys = Object.keys(notepad.entries);
-        if (keys.length > 0) {
-          lines.push('SC Notepad entries:');
-          for (const key of keys) {
-            const entry = notepad.entries[key];
-            const preview = entry.content?.slice(0, 100) ?? '';
-            lines.push(`  - ${key}: ${preview}${entry.content?.length > 100 ? '...' : ''}`);
-          }
-        }
       }
     }
   } catch (e) { logError('loadScPriorityContext', e); }
@@ -106,29 +78,14 @@ function loadScPriorityContext() {
 }
 
 /**
- * Get Claude Code usage stats via CLI
+ * Get Claude Code usage stats.
+ * NOTE: Removed execSync('claude usage') — it spawned a new Claude session
+ * causing ETIMEDOUT errors and useless "usage" session spam.
+ * Usage is already shown in the HUD status line via usage-api.mjs.
  */
 async function getUsageStats() {
-  const lines = [];
-  try {
-    const { execSync } = await import('child_process');
-
-    // Get usage output
-    const usage = execSync('claude usage 2>/dev/null || echo "Usage data unavailable"', {
-      encoding: 'utf-8',
-      timeout: 5000,
-    }).trim();
-
-    if (usage && !usage.includes('unavailable')) {
-      lines.push('');
-      lines.push('Usage Stats:');
-      // Add the raw usage output, indented
-      for (const line of usage.split('\n')) {
-        lines.push(`  ${line}`);
-      }
-    }
-  } catch (e) { logError('getUsageStats', e); }
-  return lines;
+  // Usage stats are handled by the HUD status line, not here.
+  return [];
 }
 
 async function main() {
@@ -179,7 +136,7 @@ async function main() {
     }
   } catch (e) { logError('loadConfig', e); }
 
-  const lines = [getDelegationProtocol(), '', '[SuperClaw] Persistent memory system active.'];
+  const lines = ['[SuperClaw] Persistent memory system active.'];
   if (telegramHint) lines.push(telegramHint);
 
   if (existsSync(dbPath)) {

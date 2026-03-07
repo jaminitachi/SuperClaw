@@ -230,6 +230,7 @@ These keywords trigger skills automatically (via keyword detector hook):
 | "schedule", "cron" | `superclaw:cron-mgr` |
 | "pipeline", "morning brief" | `superclaw:automation-pipeline` |
 | "ulw", "ultrawork", "다 해줘" | `superclaw:ultrawork` |
+| "ulw --opus", "ultrawork opus", "전부 opus" | `superclaw:ultrawork` (opus override) |
 | "setup", "설정" | `superclaw:setup` |
 
 ---
@@ -250,6 +251,9 @@ These keywords trigger skills automatically (via keyword detector hook):
 
 When ultrawork activates, announce:
 > **ultrawork!** 실행했습니다. 완료 조건을 확인하고 병렬 실행을 시작합니다.
+
+When ultrawork with opus override activates, announce:
+> **ultrawork! (OPUS OVERRIDE)** 실행했습니다. 모든 에이전트를 opus 모델로 실행합니다.
 
 ---
 

@@ -200,10 +200,11 @@ server.tool(
     name: z.string().describe('Unique name for the cron job'),
     schedule: z.string().describe('Cron expression (5-field): "minute hour day-of-month month day-of-week"'),
     command: z.string().describe('Shell command or "pipeline:<name>" to run'),
+    requiresIdle: z.boolean().optional().default(false).describe('If true, skip execution when user is actively using the Mac (idle < 2min)'),
   },
-  async ({ name, schedule, command }) => {
+  async ({ name, schedule, command, requiresIdle }) => {
     try {
-      const job = cronScheduler.addJob(name, schedule, command);
+      const job = cronScheduler.addJob(name, schedule, command, requiresIdle);
       return {
         content: [{
           type: 'text',

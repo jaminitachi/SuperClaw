@@ -164,6 +164,13 @@ server.tool(
     category: z.string().optional().describe('Filter by category'),
   },
   async ({ query, limit, category }) => {
+    // Auto-quote queries containing hyphens or special FTS5 chars
+    // to prevent "no such column" errors (e.g., "qa-test" → "\"qa-test\"")
+    let ftsQuery = query;
+    if (/[-+*~]/.test(query) && !query.startsWith('"')) {
+      ftsQuery = `"${query}"`;
+    }
+
     let sql = `
       SELECT k.id, k.category, k.subject, k.content, k.confidence, k.access_count, k.updated_at,
              rank
@@ -171,7 +178,7 @@ server.tool(
       JOIN knowledge k ON k.id = fts.rowid
       WHERE knowledge_fts MATCH ?
     `;
-    const params: unknown[] = [query];
+    const params: unknown[] = [ftsQuery];
 
     if (category) {
       sql += ' AND k.category = ?';
@@ -193,11 +200,16 @@ server.tool(
       return { content: [{ type: 'text', text: 'No results found.' }] };
     }
 
-    const text = rows.map((r) =>
-      `[#${r.id}] [${r.category}] ${r.subject} (confidence: ${r.confidence}, accessed: ${r.access_count}x)\n${r.content}`
-    ).join('\n\n---\n\n');
+    // Progressive disclosure (inspired by Claude-Mem):
+    // Show compact index first, truncate long content to save tokens.
+    // Use sc_memory_recall with specific ID for full content.
+    const text = rows.map((r) => {
+      const content = String(r.content);
+      const truncated = content.length > 200 ? content.slice(0, 200) + '...[truncated, use sc_memory_recall id=' + r.id + ' for full]' : content;
+      return `[#${r.id}] [${r.category}] ${r.subject} (confidence: ${r.confidence}, accessed: ${r.access_count}x)\n${truncated}`;
+    }).join('\n\n---\n\n');
 
-    return { content: [{ type: 'text', text: text }] };
+    return { content: [{ type: 'text', text: `${rows.length} results found. Showing compact view — use sc_memory_recall(id=N) for full content.\n\n${text}` }] };
   }
 );
 
@@ -326,8 +338,15 @@ server.tool(
   },
   async ({ name, type, properties }) => {
     try {
+      // Use ON CONFLICT to avoid FK violations from relations table
+      // INSERT OR REPLACE deletes first → breaks FK refs
+      const existing = db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as any;
+      if (existing) {
+        db.prepare('UPDATE entities SET type = ?, properties = ? WHERE name = ?').run(type, properties ?? null, name);
+        return { content: [{ type: 'text', text: `Entity "${name}" (${type}) updated (existing #${existing.id})` }] };
+      }
       const result = db.prepare(
-        'INSERT OR REPLACE INTO entities (name, type, properties) VALUES (?, ?, ?)'
+        'INSERT INTO entities (name, type, properties) VALUES (?, ?, ?)'
       ).run(name, type, properties ?? null);
       return { content: [{ type: 'text', text: `Entity "${name}" (${type}) saved as #${result.lastInsertRowid}` }] };
     } catch (err) {

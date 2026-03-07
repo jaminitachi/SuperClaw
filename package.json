@@ -1,6 +1,6 @@
 {
   "name": "superclaw",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Claude Code AI plugin — Telegram remote control, heartbeat, persistent memory, self-improving skills, composable pipelines, full Mac agentic control",
   "type": "module",
   "scripts": {
@@ -14,6 +14,7 @@
     "daemon:start": "node scripts/daemon.mjs start",
     "daemon:stop": "node scripts/daemon.mjs stop",
     "daemon:status": "node scripts/daemon.mjs status",
+    "qa": "bash scripts/qa-full-test.sh",
     "daemon:install": "node scripts/daemon.mjs install",
     "daemon:uninstall": "node scripts/daemon.mjs uninstall"
   },

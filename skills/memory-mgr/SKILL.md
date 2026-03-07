@@ -78,7 +78,7 @@ continuity. This makes Claude Code's "long-term memory" reliable and queryable.
 
 3. **Phase 3 - Graph Management** (when building structured knowledge):
    - Add entity: `sc_memory_add_entity` with params:
-     - `name`: string -- unique entity name (e.g., "SuperClaw", "React", "DaehanLim")
+     - `name`: string -- unique entity name (e.g., "SuperClaw", "React", "YourProject")
      - `type`: string -- entity type ("project", "person", "technology", "file", "service", "concept")
      - `properties`: string -- optional JSON of extra attributes
    - Add relation: `sc_memory_add_relation` with params:
