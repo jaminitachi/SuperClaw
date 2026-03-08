@@ -52,13 +52,10 @@ async function main() {
   if (reasons.length > 0) {
     console.log(JSON.stringify({
       decision: 'block',
-      hookSpecificOutput: {
-        hookEventName: 'Stop',
-        additionalContext: `SuperClaw Sisyphus: ${reasons.join(', ')}. Continue working on pending tasks. To force exit, delete state files in ~/.claude/.sc/state/ or use /cancel.`,
-      },
+      reason: `SuperClaw Sisyphus: ${reasons.join(', ')}. Continue working on pending tasks. To force exit, delete state files in ~/.claude/.sc/state/ or use /cancel.`,
     }));
   } else {
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ decision: 'approve' }));
   }
 }
 
