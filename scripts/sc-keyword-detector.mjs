@@ -275,18 +275,37 @@ async function main() {
       parts.push(`MANDATORY EXECUTION PLAN (${modeLabel} Mode):`);
       parts.push(`You MUST execute this plan. This is not a suggestion.`);
       parts.push(``);
+      parts.push(`== PHASE 1: TEAM EXECUTION ==`);
       const steps = mergedAgents.map((agent, i) => {
         const parallel = i > 0 && mergedAgents[i-1].model !== 'opus' ? ' (parallel with previous)' : '';
         return `  Step ${i+1}: Spawn Agent with subagent_type="${agent.type}" model="${agent.model}" role="${agent.role}"${parallel}`;
       });
       parts.push(...steps);
-      parts.push(`  Step ${mergedAgents.length + 1}: Read ALL changed files yourself (Read tool) — never trust agent claims`);
-      parts.push(`  Step ${mergedAgents.length + 2}: Run build/tests to verify`);
-      parts.push(`  Step ${mergedAgents.length + 3}: Log verification via sc_verification_log`);
-      parts.push(`  Step ${mergedAgents.length + 4}: Store learnings via sc_learning_store`);
       parts.push(``);
-      parts.push(`If any step fails, escalate: haiku→sonnet→opus. Max 3 retries per step.`);
-      parts.push(`Do NOT stop until the user's completion condition is FULFILLED.`);
+      parts.push(`== PHASE 2: QA VERIFICATION (mandatory, never skip) ==`);
+      let qStep = mergedAgents.length + 1;
+      parts.push(`  Step ${qStep++}: Read ALL changed files yourself (Read tool) — never trust agent claims`);
+      parts.push(`  Step ${qStep++}: Run build/tests/lint to verify correctness`);
+      if (!seenAgents.has('superclaw:sc-test-engineer')) {
+        parts.push(`  Step ${qStep++}: Spawn Agent with subagent_type="superclaw:sc-test-engineer" model="sonnet" role="QA verification"`);
+      }
+      if (!seenAgents.has('superclaw:sc-code-reviewer')) {
+        parts.push(`  Step ${qStep++}: Spawn Agent with subagent_type="superclaw:sc-code-reviewer" model="opus" role="Quality review"`);
+      }
+      parts.push(``);
+      parts.push(`== PHASE 3: PM SIGN-OFF (you are the CTO — final judgment) ==`);
+      parts.push(`  Step ${qStep++}: Review ALL results as CTO/PM. Ask yourself:`);
+      parts.push(`    - Does this FULLY satisfy the user's original request?`);
+      parts.push(`    - Are there edge cases, bugs, or missing features?`);
+      parts.push(`    - Would I ship this to production? If NO → go back to Phase 1.`);
+      parts.push(`  Step ${qStep++}: Log verification via sc_verification_log`);
+      parts.push(`  Step ${qStep++}: Store learnings via sc_learning_store`);
+      parts.push(``);
+      parts.push(`RULES:`);
+      parts.push(`  - If Phase 2 QA fails → fix and re-run Phase 1 with learnings`);
+      parts.push(`  - If Phase 3 PM rejects → fix and re-run. Max 3 full cycles.`);
+      parts.push(`  - Escalation: haiku→sonnet→opus on any agent failure`);
+      parts.push(`  - Do NOT stop until the user's completion condition is FULFILLED.`);
     } else {
       // Normal mode: show all matched teams with their agents
       parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${teamLabel}" recommended.`);
@@ -310,14 +329,23 @@ async function main() {
       parts.push(`  - ${agent.type} (${agent.model}): ${agent.capability}`);
     }
     parts.push(``);
-    parts.push(`Instructions:`);
+    parts.push(`PHASE 1 — TEAM EXECUTION:`);
     parts.push(`  1. Read the user's request carefully`);
     parts.push(`  2. Select the most relevant agents (2-5) and assign each a specific role for THIS task`);
-    parts.push(`  3. Spawn them using Agent tool — run independent agents in parallel`);
-    parts.push(`  4. After all agents complete: Read changed files yourself, run build/tests, verify independently`);
-    parts.push(`  5. Log results via sc_verification_log, store learnings via sc_learning_store`);
+    parts.push(`  3. ALWAYS include sc-test-engineer for QA`);
+    parts.push(`  4. Spawn them using Agent tool — run independent agents in parallel`);
     parts.push(``);
-    parts.push(`If any agent fails, escalate: haiku→sonnet→opus. Max 3 retries.`);
+    parts.push(`PHASE 2 — QA VERIFICATION (never skip):`);
+    parts.push(`  5. Read ALL changed files yourself (Read tool) — never trust agent claims`);
+    parts.push(`  6. Run build/tests/lint to verify`);
+    parts.push(`  7. If sc-test-engineer wasn't in team, spawn it now for QA`);
+    parts.push(``);
+    parts.push(`PHASE 3 — PM SIGN-OFF (you are the CTO):`);
+    parts.push(`  8. Review ALL results. Does this FULLY satisfy the user's request?`);
+    parts.push(`  9. If NO → go back to Phase 1 with learnings. Max 3 cycles.`);
+    parts.push(`  10. Log via sc_verification_log, store via sc_learning_store`);
+    parts.push(``);
+    parts.push(`Escalation: haiku→sonnet→opus on any failure.`);
     parts.push(`Do NOT stop until the user's request is FULFILLED.`);
   }
 
