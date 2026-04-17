@@ -3,11 +3,17 @@
  * SessionStart hook — loads relevant memories from persistent DB and SC
  * notepad priority context into the session.
  */
+if (process.env.SUPERCLAW_DAEMON === '1') {
+  console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+  process.exit(0);
+}
 import { readStdin } from './lib/stdin.mjs';
 import { existsSync, readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
 import { todosPath } from './lib/session.mjs';
+import { trace } from './lib/hook-logger.mjs';
+import { execSync, spawn } from 'child_process';
 
 const HOOK_LOG_PATH = join(homedir(), 'superclaw', 'data', 'logs', 'hooks.log');
 
@@ -30,7 +36,6 @@ function detectProject() {
 
   // Try git remote for more specific project identification
   try {
-    const { execSync } = require('child_process');
     const remote = execSync('git remote get-url origin 2>/dev/null', {
       encoding: 'utf-8', timeout: 2000
     }).trim();
@@ -44,7 +49,11 @@ function detectProject() {
 
 /**
  * Load smart context from SC's SQLite database.
- * Hierarchy: weekly-digests (compressed insights) → project-relevant learnings → recent knowledge
+ * New 3-layer hierarchy:
+ *   Layer 1: core-digest (project-matching, full content)
+ *   Layer 2: recent weekly-digest (project-matching, unarchived)
+ *   Layer 3: unarchived learnings (project-matching, recent 10)
+ * Always includes "general" project content.
  */
 async function loadRecentMemories(dbPath) {
   const summaries = [];
@@ -52,55 +61,62 @@ async function loadRecentMemories(dbPath) {
     const Database = (await import('better-sqlite3')).default;
     const db = new Database(dbPath, { readonly: true });
     const project = detectProject();
+    const projName = project.name || 'general';
+    // Always match current project + "general"
+    const projectPatterns = [projName];
+    if (projName !== 'general') projectPatterns.push('general');
 
-    // Layer 1: Latest weekly digests (compressed insights from 1000+ learnings)
-    const digests = db.prepare(
-      `SELECT subject, content FROM knowledge
-       WHERE category = 'weekly-digest'
-       ORDER BY updated_at DESC LIMIT 3`
-    ).all();
+    // Layer 1: Core digests (evergreen compressed knowledge, per-project)
+    for (const p of projectPatterns) {
+      const coreDigest = db.prepare(
+        "SELECT subject, content FROM knowledge WHERE category = 'core-digest' AND subject = ? LIMIT 1"
+      ).get(`Core Digest: ${p}`);
 
-    if (digests.length > 0) {
-      summaries.push('Accumulated insights (weekly digest):');
-      for (const d of digests) {
-        // Each digest has ~10 numbered insights, take first 5 to save tokens
-        const lines = d.content.split('\n').filter(l => l.trim()).slice(0, 5);
-        summaries.push(`  [${d.subject}]`);
+      if (coreDigest) {
+        summaries.push(`Core knowledge (${p}):`);
+        const lines = coreDigest.content.split('\n').filter(l => l.trim());
         for (const l of lines) {
-          summaries.push(`    ${l}`);
+          summaries.push(`  ${l}`);
         }
       }
     }
 
-    // Layer 2: Project-relevant learnings (non-archived, matching current project)
-    if (project.name) {
-      const projectLearnings = db.prepare(
-        `SELECT content, category FROM learnings
-         WHERE (project LIKE ? OR content LIKE ?)
-         AND (tags NOT LIKE '%archived%' OR tags IS NULL OR tags = '')
-         ORDER BY created_at DESC LIMIT 5`
-      ).all(`%${project.name}%`, `%${project.name}%`);
+    // Layer 2: Recent unarchived weekly-digests (project-matching)
+    for (const p of projectPatterns) {
+      const weeklyDigests = db.prepare(
+        `SELECT subject, content FROM knowledge
+         WHERE category = 'weekly-digest'
+           AND subject LIKE ?
+           AND (tags NOT LIKE '%archived%' OR tags IS NULL OR tags = '')
+         ORDER BY updated_at DESC LIMIT 2`
+      ).all(`Weekly Digest: ${p} (%`);
 
-      if (projectLearnings.length > 0) {
-        summaries.push(`Project learnings (${project.name}):`);
-        for (const l of projectLearnings) {
+      if (weeklyDigests.length > 0) {
+        summaries.push(`Recent weekly insights (${p}):`);
+        for (const d of weeklyDigests) {
+          const lines = d.content.split('\n').filter(l => l.trim()).slice(0, 5);
+          summaries.push(`  [${d.subject}]`);
+          for (const l of lines) {
+            summaries.push(`    ${l}`);
+          }
+        }
+      }
+    }
+
+    // Layer 3: Unarchived learnings (project-matching, recent 10)
+    for (const p of projectPatterns) {
+      const learnings = db.prepare(
+        `SELECT content, category FROM learnings
+         WHERE (COALESCE(NULLIF(project, ''), 'general') = ?)
+         AND (tags NOT LIKE '%archived%' OR tags IS NULL OR tags = '')
+         ORDER BY created_at DESC LIMIT 10`
+      ).all(p);
+
+      if (learnings.length > 0) {
+        summaries.push(`Recent learnings (${p}):`);
+        for (const l of learnings) {
           summaries.push(`  - [${l.category}] ${l.content.slice(0, 150)}`);
         }
-      }
-    }
-
-    // Layer 3: Recent non-digest knowledge (decisions, architecture, etc.)
-    const recentKnowledge = db.prepare(
-      `SELECT subject, content, category FROM knowledge
-       WHERE category != 'weekly-digest' AND category != 'session-summary'
-       ORDER BY updated_at DESC LIMIT 5`
-    ).all();
-
-    if (recentKnowledge.length > 0) {
-      summaries.push('Recent memories:');
-      for (const r of recentKnowledge) {
-        const cat = r.category ? ` [${r.category}]` : '';
-        summaries.push(`  - ${r.subject}${cat}: ${String(r.content).slice(0, 120)}`);
       }
     }
 
@@ -119,18 +135,22 @@ function loadScPriorityContext() {
     if (existsSync(notepadPath)) {
       const notepad = JSON.parse(readFileSync(notepadPath, 'utf-8'));
 
-      // Auto-cleanup: keep only last 10 working entries from last 3 days
-      if (Array.isArray(notepad.working) && notepad.working.length > 10) {
-        const cutoff = new Date(Date.now() - 3 * 86_400_000).toISOString();
-        let recent = notepad.working.filter(e => (e.timestamp || '') >= cutoff);
-        if (recent.length > 10) recent = recent.slice(-10);
-        notepad.working = recent;
-        try { writeFileSync(notepadPath, JSON.stringify(notepad, null, 2), 'utf-8'); } catch {}
-      }
-
+      // Schema: { priority, entries: { key: { content, updated_at } } }
       if (notepad.priority && notepad.priority.trim()) {
         lines.push('SC Priority Context:');
         lines.push(`  ${notepad.priority.trim()}`);
+      }
+
+      // Show recent notepad entries
+      if (notepad.entries && typeof notepad.entries === 'object') {
+        const entries = Object.entries(notepad.entries);
+        if (entries.length > 0) {
+          lines.push('SC Notepad:');
+          for (const [key, val] of entries.slice(-5)) {
+            const content = (val && typeof val === 'object' && val.content) ? val.content : String(val);
+            lines.push(`  [${key}] ${content.slice(0, 200)}`);
+          }
+        }
       }
     }
   } catch (e) { logError('loadScPriorityContext', e); }
@@ -138,14 +158,47 @@ function loadScPriorityContext() {
 }
 
 /**
- * Get Claude Code usage stats.
- * NOTE: Removed execSync('claude usage') — it spawned a new Claude session
- * causing ETIMEDOUT errors and useless "usage" session spam.
- * Usage is already shown in the HUD status line via usage-api.mjs.
+ * First-run auto-install of learning-consolidate launchd plist.
+ * Memory consolidation is SuperClaw's core feature — must work without `npm run setup`.
+ * Silent no-op if: non-macOS / plist already installed / script missing.
  */
-async function getUsageStats() {
-  // Usage stats are handled by the HUD status line, not here.
-  return [];
+async function ensureLearningConsolidatePlist() {
+  try {
+    if (platform() !== 'darwin') return;
+    const plistPath = join(homedir(), 'Library', 'LaunchAgents', 'com.user.sc-learning-consolidate.plist');
+    if (existsSync(plistPath)) return;
+    const scriptPath = join(homedir(), 'superclaw', 'scripts', 'learning-consolidate.mjs');
+    if (!existsSync(scriptPath)) return;
+    const { addSchedule } = await import('./lib/schedule-manager.mjs');
+    addSchedule({ name: 'learning-consolidate', nodeScript: scriptPath, hour: 3, minute: 0, weekday: 0 });
+    logError('plist-auto-install', new Error('learning-consolidate plist registered (first-run, Sun 03:00)'));
+  } catch (e) { logError('ensureLearningConsolidatePlist', e); }
+}
+
+/**
+ * First-run auto-install of sc-daemon (TranscriptWatcher for 12h session summaries).
+ * Requires pre-built bridge/sc-daemon.cjs — skipped if user hasn't run `npm run build`.
+ */
+async function ensureDaemonInstalled() {
+  try {
+    if (platform() !== 'darwin') return;
+    const daemonPlist = join(homedir(), 'Library', 'LaunchAgents', 'com.superclaw.daemon.plist');
+    if (existsSync(daemonPlist)) return;
+    const daemonScript = join(homedir(), 'superclaw', 'scripts', 'daemon.mjs');
+    const bridgeFile = join(homedir(), 'superclaw', 'bridge', 'sc-daemon.cjs');
+    if (!existsSync(daemonScript)) return;
+    if (!existsSync(bridgeFile)) {
+      logError('daemon-auto-install-skip', new Error('bridge/sc-daemon.cjs missing — run `npm run build` first'));
+      return;
+    }
+    // Detached spawn — install runs launchctl which may take a moment; don't block hook
+    const child = spawn(process.execPath, [daemonScript, 'install'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    logError('daemon-auto-install', new Error('daemon install triggered (first-run)'));
+  } catch (e) { logError('ensureDaemonInstalled', e); }
 }
 
 async function main() {
@@ -160,6 +213,10 @@ async function main() {
 
   // RULE 1: Clean up TODO state for this session
   try { unlinkSync(todosPath(sessionId)); } catch {}
+
+  // Core feature: ensure memory-consolidation plist is installed (silent, idempotent)
+  await ensureLearningConsolidatePlist();
+  await ensureDaemonInstalled();
 
   const scRoot = join(homedir(), 'superclaw');
   const configPath = join(scRoot, 'superclaw.json');
@@ -178,10 +235,7 @@ async function main() {
     ];
     console.log(JSON.stringify({
       continue: true,
-      hookSpecificOutput: {
-        hookEventName: 'SessionStart',
-        additionalContext: lines.join('\n'),
-      },
+      systemMessage: lines.join('\n'),
     }));
     return;
   }
@@ -207,6 +261,31 @@ async function main() {
     if (memories.length > 0) {
       lines.push(...memories);
     }
+
+    // knowledge 자동 recall (access_count 증가)
+    try {
+      const Database = (await import('better-sqlite3')).default;
+      const db = new Database(dbPath);
+      const recentKnowledge = db.prepare(
+        'SELECT id, category, subject FROM knowledge ORDER BY updated_at DESC LIMIT 5'
+      ).all();
+
+      if (recentKnowledge.length > 0) {
+        // access_count 증가
+        const updateStmt = db.prepare('UPDATE knowledge SET access_count = access_count + 1 WHERE id = ?');
+        for (const k of recentKnowledge) {
+          updateStmt.run(k.id);
+        }
+
+        // context에 포함
+        lines.push('');
+        lines.push('Recent knowledge:');
+        for (const k of recentKnowledge) {
+          lines.push(`  [${k.category}] ${k.subject}`);
+        }
+      }
+      db.close();
+    } catch (e) { logError('knowledgeRecall', e); }
   } else {
     lines.push('No memory DB found. Use sc_memory_store to start building persistent memory.');
   }
@@ -217,70 +296,20 @@ async function main() {
     lines.push(...scContext);
   }
 
-  // Check if Telegram bot is reachable
-  try {
-    if (cfg?.telegram?.enabled && cfg?.telegram?.botToken) {
-      const res = await fetch(`https://api.telegram.org/bot${cfg.telegram.botToken}/getMe`, {
-        signal: AbortSignal.timeout(1500),
-      }).catch(() => null);
-      if (res) {
-        const data = await res.json();
-        if (data.ok) {
-          lines.push(`Telegram bot: connected (@${data.result.username})`);
-        } else {
-          lines.push('Telegram bot: token invalid');
-        }
-      } else {
-        lines.push('Telegram bot: not reachable (network issue)');
-      }
-    }
-  } catch (e) { logError('telegramCheck', e); }
+  // ── SuperClaw Orchestration Model (v4: minimal token footprint) ──
+  lines.push('');
+  lines.push('SuperClaw v4: Team-based orchestration. Use /ultrawork for PO mode.');
+  lines.push('Teams: DEV (architect/frontend/backend/qa), RESEARCH (reviewer/writer/assistant), INFRA (monitor/mac), VERIFY.');
+  lines.push('See ~/superclaw/agents/TEAMS.md for details.');
 
-  // Usage stats
-  const usageLines = await getUsageStats();
-  if (usageLines.length > 0) {
-    lines.push(...usageLines);
-  }
-
-  // Auto-consolidate learnings if overdue (> 7 days since last digest)
-  if (existsSync(dbPath)) {
-    try {
-      const Database = (await import('better-sqlite3')).default;
-      const db = new Database(dbPath, { readonly: true });
-      const lastDigest = db.prepare(
-        "SELECT updated_at FROM knowledge WHERE category = 'weekly-digest' ORDER BY updated_at DESC LIMIT 1"
-      ).get();
-      const unarchived = db.prepare(
-        "SELECT COUNT(*) as cnt FROM learnings WHERE tags NOT LIKE '%archived%' OR tags IS NULL OR tags = ''"
-      ).get();
-      db.close();
-
-      const daysSinceDigest = lastDigest
-        ? (Date.now() - new Date(lastDigest.updated_at).getTime()) / 86_400_000
-        : 999;
-
-      if (daysSinceDigest > 7 && unarchived.cnt > 20) {
-        lines.push(`Learning consolidation overdue (${Math.round(daysSinceDigest)}d, ${unarchived.cnt} unarchived). Running in background...`);
-        // Fire and forget — don't block session start
-        const { spawn: spawnChild } = await import('child_process');
-        const child = spawnChild('node', [join(scRoot, 'scripts', 'learning-consolidate.mjs')], {
-          detached: true,
-          stdio: 'ignore',
-        });
-        child.unref();
-      }
-    } catch (e) { logError('autoConsolidate', e); }
-  }
-
-  lines.push('Skills: telegram-control, mac-control, memory-mgr, heartbeat, automation-pipeline, cron-mgr, skill-forge, setup, dev-workflow, paper-review, experiment-log, lit-review, research-analysis');
-  lines.push('Delegation: see DELEGATION.md for agent routing table');
+  trace(sessionId, 'hook:SessionStart:output', {
+    additionalContext: lines.join('\n').slice(0, 1000),
+    contextLength: lines.join('\n').length,
+  });
 
   console.log(JSON.stringify({
     continue: true,
-    hookSpecificOutput: {
-      hookEventName: 'SessionStart',
-      additionalContext: lines.join('\n'),
-    },
+    systemMessage: lines.join('\n'),
   }));
 }
 
