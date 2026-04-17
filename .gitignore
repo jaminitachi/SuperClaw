@@ -28,3 +28,17 @@ superclaw.json.bak
 
 # Usage report (contains PII — instance-specific)
 USAGE-REPORT.md
+
+# [audit-added] .omx session state (typo fix for .omc line above)
+.omx/
+
+# [audit-added] Backup dirs with OAuth tokens / API captures
+data-backup-*/
+
+# [audit-added] Personal prompts
+prompts/trading-*.txt
+prompts/trading-daily-*.txt
+prompts/weekly-*.txt
+
+# [audit-added] HUD deps
+hud/node_modules/
