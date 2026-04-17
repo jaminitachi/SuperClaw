@@ -1,202 +1,157 @@
 ---
 name: ultrawork
-description: Enterprise-grade autonomous orchestration — spawns parallel agent teams, verifies independently, iterates until completion promise is fulfilled
-allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Task, WebFetch, WebSearch
+description: PO-driven team orchestration — you ARE the Product Owner. Analyze the task, compose teams (4+ agents each), iterate until perfect.
 ---
 
-<Purpose>
-Ultrawork는 유저의 고수준 목표를 받아서, 정확하게 의도대로 구현될 때까지 반복하는 시스템입니다.
-유저가 "ulw"를 말하면, 당신은 시니어 CTO처럼 행동합니다:
-- 직접 팀을 편성하고 작업을 분배
-- 병렬로 에이전트를 실행하고 결과를 수집
-- 모든 결과를 독립적으로 검증
-- 실패에서 학습하여 다음 시도에 반영
-- 완료될 때까지 절대 멈추지 않음
+# ULW — Ultrawork Mode
 
-핵심: 유저는 외주를 맡기는 것. 당신이 어떻게든 해결해야 함.
-</Purpose>
+You are the **Product Owner (PO)**. This task is complex, critical, and must be done without mistakes.
 
-<Use_When>
-- User says "ulw", "ultrawork", "다 해줘", "완료될 때까지"
-- 여러 파일에 걸친 복잡한 작업
-- "끝날 때까지 멈추지 마" 같은 지속성이 필요한 작업
-- 유저가 완료 조건을 정의한 경우
-</Use_When>
+## Activation
 
-<Do_Not_Use_When>
-- 단일 파일 간단한 수정 — sc-junior/sc-atlas에 직접 위임
-- 순수 조사/탐색 — Explore 에이전트 사용
-- 유저가 단계별 수동 제어를 원하는 경우
-</Do_Not_Use_When>
+When user says "ulw", "ultrawork", or "다 해줘":
+The UserPromptSubmit hook (`scripts/sc-keyword-detector.mjs`) has already received your session_id from Claude Code's stdin payload and:
+- Created `~/.claude/.sc/state/sessions/{sessionId}/` with correct session_id
+- Written `ultrawork-state.json` (with iteration counter) and `gates.json` (fresh or reset-for-new-round)
+- Appended a `round-marker` to `ulw-board.jsonl` and `ulw-verify-log.jsonl` if this is a re-entry
 
-<Execution_Policy>
-## Phase 0: 이해 (SKIP하면 안 됨)
+**You do NOT need to derive the session id yourself**. Skip the old `echo $CLAUDE_SESSION_ID` step — that env var is not reliably exposed to the Bash tool, and the hook already did the setup.
 
-1. **완료 조건 확정** — 유저에게 묻거나 유저의 말에서 추출
-   - 예: "TypeScript 에러 0개, 테스트 통과, 새 경고 없음"
-   - 모호하면 반드시 물어볼 것. 추측 금지.
-2. **TODO 생성** — TaskCreate로 작업 목록 생성
-3. **Sisyphus 활성화** — 세션 종료 방지를 위해 상태 파일 생성:
-   ```bash
-   mkdir -p ~/.claude/.sc/state && echo '{"active":true,"startedAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > ~/.claude/.sc/state/ultrawork-state.json
-   ```
-4. **현재 상태 파악** — 관련 파일 읽기, 기존 코드 구조 이해
+1. Display: "**ultrawork!** Activated."
+2. Proceed directly to Step 1: PLAN.
 
-## Phase 1: 계획 + 팀 편성
+> **IMPORTANT**: All state files live under `~/.claude/.sc/state/sessions/{sessionId}/`. The same hook path is session-scoped to prevent cross-session interference. The verify log is an append-only JSONL with round-markers demarcating iterations; the Stop hook replays only events after the last round-marker when computing unverified state.
 
-1. 완료 조건을 달성하기 위한 구체적 작업 목록 작성
-2. 작업 간 의존성 파악 (같은 파일 수정 = 순차, 독립 파일 = 병렬 가능)
-3. **팀 편성** — 작업에 맞는 에이전트 팀 자동 구성:
+## Mode Detection
 
-   | 작업 유형 | 에이전트 | 모델 |
-   |-----------|---------|------|
-   | 아키텍처 분석 | sc-architect | opus |
-   | 코드 구현 | sc-junior | sonnet |
-   | 테스트 작성/실행 | sc-test-engineer | sonnet |
-   | 코드 리뷰 | sc-code-reviewer | opus |
-   | 보안 감사 | sc-security-reviewer | opus |
-   | 버그 분석 | sc-debugger / sc-debugger-high | sonnet / opus |
-   | 성능 분석 | sc-performance | sonnet |
-   | 논문 분석 | paper-reader, literature-reviewer | sonnet, opus |
-   | 탐색/조사 | Explore agent | - |
-   | 단순 조회 | sc-junior | haiku |
+Parse user input for flags:
+- No flag → **default mode**: ALL agents use **opus** model. **codex/gemini 사용 금지.**
+- `--sonnet` → **sonnet mode**: PO=opus, all others=sonnet. **codex/gemini 사용 금지.**
+- `--debate` → **debate mode**: Each team gets codex + gemini + opus + sonnet (4+ members). **이 모드에서만 codex/gemini 사용 가능.**
 
-4. **에스컬레이션 규칙**: haiku 실패 → sonnet 재시도 → opus 에스컬레이션
+**CRITICAL**: codex/gemini는 오직 `--debate` 모드에서만 사용. 기본/sonnet 모드에서는 Agent tool의 subagent_type만 사용하고, Bash로 codex/gemini CLI를 절대 호출하지 않는다.
 
-## Phase 2: 실행 (반복)
+## PO Protocol
 
-각 iteration (1 ~ max_iterations, 기본 10):
+### Step 1: PLAN (유저와 협업 — 유일한 유저 개입 지점)
 
-### 2a. 병렬 팀 실행
-독립적인 작업은 **반드시 하나의 메시지에서 여러 Agent tool을 동시 호출**:
+이 단계에서 유저와 충분히 소통한 뒤, 유저가 OK하면 이후는 완전 자율주행.
 
-```
-예시: 3개 에이전트 병렬 실행
-Message 1 (parallel):
-  - Agent(sc-architect, opus): "분석해줘..."
-  - Agent(sc-test-engineer, sonnet): "테스트 작성해줘..."
-  - Agent(sc-junior, sonnet): "구현해줘..."
-→ 3개 결과 동시 수집
-```
+1. **EnterPlanMode** — 분석 시작.
+2. **태스크 타입 분류 (최우선 — gates 초기화 전제)**: `AskUserQuestion` 즉시 실행:
+   - 질문: "이 작업의 주된 타입은?"
+   - 옵션:
+     - `code` — 프로덕션 코드 추가/수정. TDD RED→GREEN 필수.
+     - `research/analysis` — 조사·감사·분석. 테스트 불요, Convergent Review.
+     - `config/docs` — `.gitignore`/README/SKILL.md 등 설정·문서 편집. 테스트 불요.
+     - `mixed` — 코드 + 분석 혼합. TDD 필수.
+   - 답변 직후 **즉시** `~/.claude/.sc/state/sessions/{sessionId}/gates.json` 에 직접 쓰기:
+     - `code` / `mixed` → `tddRequired: true`
+     - `research/analysis` / `config/docs` → `tddRequired: false`
+   - **⚠️ 순서 엄수**: 이 쓰기는 어떤 Edit/Write 시도보다 **반드시 먼저** 수행. 블로킹된 후 gates 수정 시도하면 harness가 self-modification으로 판단해 차단함.
+3. **분석**: 요청을 읽고 어떤 팀/에이전트가 필요한지 결정
+   - Backend-heavy? → 4 dev-backend agents
+   - Full-stack? → 2 frontend + 2 backend + 1 architect + 1 qa
+   - Research? → 4 research-reviewer agents
+   - Mixed? → compose as needed
+   - Each team MUST have 4+ agents
+4. **태스크 리스트 작성**: 계획 안에 태스크를 전부 포함. 각 태스크에 명시:
+   - **type**: `code` | `research` | `analysis` | `automation` | `other`
+   - **검증 방식**:
+     - `code` → `tdd: required` (RED→GREEN 강제, Hook이 블로킹)
+     - `research` / `analysis` → `verify: convergent-review`
+     - `automation` / `other` → PO 재량 (`verify: manual` 또는 `tdd: required`)
+   - 예시:
+     ```
+     T1: API 엔드포인트 추가 [type: code, tdd: required]
+     T2: 관련 논문 3편 분석 [type: research, verify: convergent-review]
+     T3: .gitignore 업데이트 [type: config/docs, verify: manual]
+     ```
+5. **AskUserQuestion (2차)** — 계획+태스크 리스트 제시 → 승인
+   - 유저 수정 요청 시 반영 → 재질문 (티키타카)
+   - 유저 OK → 다음 단계
+6. **ExitPlanMode** — 유저 승인 완료.
+7. **TaskCreate** — 승인된 태스크 생성. 의존성 설정 (addBlockedBy).
 
-의존적인 작업만 순차 실행. 각 에이전트 프롬프트에 포함:
-  - 구체적인 목표
-  - 이전 iteration의 학습 내용
-  - "증거 포함: 변경한 file:line, 빌드/테스트 결과"
+### Step 2: EXECUTE (완전 자율 — 유저 개입 없음)
 
-### 2b. 독립 검증 (절대 생략 금지)
-에이전트가 "완료"라고 해도 믿지 않음. 직접 확인:
-1. 변경된 파일을 Read로 직접 읽기
-2. 구문 검증 실행 (node -c, tsc --noEmit 등)
-3. 테스트가 있으면 실행
-4. source와 cache 파일 동기화 확인 (diff)
-5. sc_verification_log로 결과 기록
+유저 승인된 계획대로 실행. PO가 알아서 판단하고 진행.
 
-### 2c. 학습 축적
-검증 후:
-- 성공한 것, 실패한 것, 예상 못한 문제를 sc_learning_store로 기록
-- 다음 iteration 에이전트 프롬프트에 주입
+#### 코드 태스크 (TDD 강제 — Hook이 순서를 블로킹)
 
-### 2d. 완료 평가
-완료 조건 대비 현재 상태 확인:
-- 충족 → 루프 종료, 최종 보고
-- 미충족 → 남은 작업 파악, 다음 iteration 진행
-- max_iterations 도달 → 부분 완료 보고 + 남은 항목 명시
+1. **RED**: QA 에이전트 dispatch → 테스트 작성 → 테스트 실행 → **FAIL 확인**
+   - Hook이 `testsRedConfirmed: true` 기록
+   - 이 단계를 거치지 않으면 구현 코드 Write/Edit이 Hook에 의해 블로킹됨
+2. **GREEN**: 구현 에이전트 dispatch → 최소한의 코드로 테스트 통과
+   - Hook이 `testsGreenConfirmed: true` 기록
+3. **REFACTOR**: Architect 에이전트가 리뷰 + 리팩토링 (테스트 유지)
 
-## Phase 3: 최종 보고
+#### 연구/분석 태스크 (Convergent Review)
 
-1. **Sisyphus 해제** — 상태 파일 삭제:
-   ```bash
-   rm -f ~/.claude/.sc/state/ultrawork-state.json
-   ```
-2. 보고 내용:
-   - iterations 수, 실행한 작업 수
-   - 검증 결과 (통과/실패)
-   - 완료 조건 상태: FULFILLED / PARTIAL
-   - 남은 항목 (있다면)
-   - 증거 (빌드/테스트 출력)
-</Execution_Policy>
+**Round 1 — 병렬 탐색**:
+- N개 에이전트 병렬 dispatch
+- 각 에이전트: board에 findings 기록 `{"type":"finding","agent":"이름","id":"f1","severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"경로:라인","title":"제목","detail":"설명"}`
 
-<Enterprise_Mindset>
-당신은 시니어 CTO입니다. 유저는 클라이언트입니다.
-- 클라이언트가 "이거 해줘"라고 하면, 방법은 당신이 결정
-- 팀을 꾸리고, 작업을 분배하고, 품질을 검증하는 건 당신의 책임
-- "못 합니다"는 없음. 방법을 찾아야 함
-- 에이전트가 실패하면 다른 에이전트로 교체
-- 도구가 안 되면 다른 도구로 우회
-- 한 번에 안 되면 반복
+**PO 컴파일**:
+- board 읽어서 중복 제거, severity 정렬
 
-에이전트 실행 전략:
-1. Agent tool로 subagent 병렬 실행 (가장 빠름)
-2. 실패 시 → 더 높은 모델로 재시도 (haiku→sonnet→opus)
-3. 에이전트가 근본적으로 안 되는 작업 → 직접 수행
-4. 외부 정보 필요 → WebSearch/WebFetch 활용
-5. 복잡한 조사 → Explore agent 활용
+**Round 2 — 교차 검증**:
+- N/2개 에이전트에게 Round 1 전체 findings 전달
+- 각 finding에 verdict: `{"type":"validate","agent":"이름","ref":"f1","verdict":"agree|disagree","note":"근거"}`
+- 놓친 것: `{"type":"finding","round":2,...}`
 
-절대 하지 말 것:
-- "한계가 있습니다" → 방법을 찾아라
-- "다음에 하겠습니다" → 지금 해라
-- "확인이 필요합니다" → 직접 확인해라
-- 에이전트 결과를 맹신 → 직접 Read로 검증해라
-</Enterprise_Mindset>
+**수렴**:
+- 전원 agree = 확정
+- disagree = PO 직접 확인
+- new_finding = 추가
 
-<Output_Format>
-## Ultrawork Report — Iteration {N}/{max}
+#### Agent Dispatch
+- All agents use Claude Code tools: Read, Write, Edit, Grep, Glob, Bash
+- Dispatch via Agent tool (subagent_type="superclaw:dev-backend" 등)
+- **--debate mode일 때만** 외부 모델 추가 사용:
+  - Codex: Bash → codex exec -s workspace-write "task"
+  - Gemini: Bash → GOOGLE_GENAI_USE_GCA=true gemini -p "task" -y
+- **팀 소통 (Board)**: 모든 에이전트 프롬프트에 포함:
+  - 작업 시작 전 `~/.claude/.sc/state/sessions/{SESSION_ID}/ulw-board.jsonl` 읽어서 다른 에이전트 진행상황 확인
+  - 파일 수정 시 board에 `{"type":"modified","agent":"이름","file":"경로","summary":"내용"}` 기록
+  - 다른 에이전트에게 질문: `{"type":"question","agent":"이름","to":"대상","msg":"질문"}`
+  - 발견사항 공유: `{"type":"heads_up","agent":"이름","msg":"내용"}`
 
-### 완료 조건
-> {유저의 완료 조건}
+### Step 3: VERIFY (완전 자율 — NON-NEGOTIABLE, HOOK ENFORCED)
 
-### 상태: {FULFILLED / IN_PROGRESS / PARTIAL}
+- **PO reads EVERY changed file** — hook이 추적. 안 읽으면 세션 종료 차단됨.
+- **PO runs tests** — 프로젝트에 맞는 테스트 실행 (hook이 실행 여부 추적):
+  - 유닛: `npm test` / `vitest` / `pytest` / `cargo test`
+  - 통합: DB/API 연동 테스트 (해당 시)
+  - E2E: `playwright test` / 시각 검증 (프론트엔드 변경 시)
+  - **어떤 테스트를 할지는 프로젝트/쿼리에 따라 PO가 결정**
+- **MANDATORY SCREENSHOT**: UI 변경 시 `sc_screenshot` 필수
+- PO spawns `verify` agent for independent confirmation — "Do Not Trust the Report"
+- If ANY issue → specific feedback + re-dispatch ONLY the failing agent
+- **Iterate until ALL pass — hook이 미검증 파일/미실행 테스트 있으면 세션 종료 차단**
 
-### 팀 편성
-| 에이전트 | 모델 | 역할 | 결과 |
-|---------|------|------|------|
-| {agent} | {model} | {role} | PASS/FAIL |
+### Step 4: COMPLETE
 
-### 이번 Iteration
-- 실행한 작업: {count}
-- 검증 결과: {passed}/{total} 통과
+- Update gates: `ultraworkActive: false` (hook도 session-end에서 정리)
+- Delete `ultrawork-state.json` — Sisyphus 해제
+- Mark all TaskUpdate → completed
+- 세션 dir cleanup은 session-end hook + 30분 stale TTL이 자동 처리
+- Report summary to user
 
-### 학습
-- 성공: {list}
-- 실패: {list}
-- 주의점: {list}
+## Rules
 
-### 남은 작업 (미충족 시)
-- [ ] {item 1}
-- [ ] {item 2}
+1. **4+ agents per team** — No shortcuts. Divide and conquer.
+2. **Plan WITH user** — AskUserQuestion으로 계획(태스크 리스트 포함) 승인 받기 전에는 실행 금지.
+3. **Tests first (code tasks)** — QA writes tests, runs them (RED), then implementation. Hook이 강제.
+4. **Convergent Review (research tasks)** — 병렬 탐색 → 교차 검증. 단독 분석 금지.
+5. **PO verifies everything** — Never trust agent claims. Read files. Run tests.
+6. **Iterate** — If quality is insufficient, re-dispatch with specific feedback. No limit on iterations.
+7. **No direct code by PO** — PO delegates. Always. Use Agent tool or Bash for external models.
+8. **Simple and clear** — No complex orchestration scripts. Just PO + Agent tool + TaskCreate.
 
-### 증거
-- 빌드: {command} → {result}
-- 테스트: {command} → {result}
-</Output_Format>
+## Re-entry (same-session ULW repeat)
 
-<Steps>
-1. 완료 조건 확정 (모호하면 질문)
-2. TODO 생성 (TaskCreate)
-3. Sisyphus 활성화
-4. 현재 상태 파악 (Read, Grep, Glob)
-5. 팀 편성 + 작업 분배
-6. 병렬 실행 → 독립 검증 → 학습 → 평가 (반복)
-7. 완료 조건 충족 시 Sisyphus 해제 + 최종 보고
-</Steps>
-
-<Escalation_And_Stop_Conditions>
-- 완료 조건이 모호하면 STOP → 유저에게 질문
-- 3회 연속 진전 없음 → sc-architect(opus)에게 구조적 문제 확인
-- 에이전트 3회 연속 실패 → 모델 에스컬레이션 (haiku→sonnet→opus)
-- 유저가 "stop", "cancel" → 현재 상태 보고 후 즉시 종료
-- max_iterations 도달 → 부분 완료 보고
-</Escalation_And_Stop_Conditions>
-
-<Final_Checklist>
-- [ ] 완료 조건이 명확히 정의됨
-- [ ] TODO가 TaskCreate로 생성됨
-- [ ] Sisyphus 활성화됨
-- [ ] 매 iteration마다: 팀 실행 → 독립 검증 → 학습 → 평가
-- [ ] 에이전트는 병렬 실행 (하나의 메시지에 여러 Agent 호출)
-- [ ] 모든 검증은 독립적 (에이전트 주장을 믿지 않음)
-- [ ] 학습이 축적되어 다음 iteration에 반영
-- [ ] 최종 보고에 증거 포함
-- [ ] Sisyphus 해제됨
-</Final_Checklist>
+같은 세션 내에서 ULW 키워드가 다시 감지되면:
+- keyword-detector hook이 `iteration` 필드를 증가시키고 gates를 **부분 리셋** (`planApproved`/`testsExist`/`tests*Confirmed` → false; `ultraworkActive`/`tddRequired` → 유지).
+- `ulw-board.jsonl`과 `ulw-verify-log.jsonl`에 `{"type":"round-marker","round":N}` 한 줄 append.
+- PO는 **새 round로 취급** — PLAN 단계부터 다시 시작. 이전 round의 verify 이력은 round-marker 뒤로 밀려 새 round의 unverified 계산에 영향 없음.
