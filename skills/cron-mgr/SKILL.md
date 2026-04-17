@@ -19,7 +19,7 @@ Cron Manager provides complete lifecycle management for scheduled tasks through 
 
 <Do_Not_Use_When>
 - One-time immediate execution (just run the command directly)
-- Complex multi-step pipeline scheduling (use automation-pipeline, which calls cron-mgr internally)
+- Complex multi-step pipeline scheduling (use ultrawork mode for multi-step orchestration)
 - System-level crontab editing (use Bash with crontab directly if user specifically requests OS-level cron)
 - The user wants a delay/timer, not a recurring schedule ("wait 5 minutes" is not cron)
 </Do_Not_Use_When>

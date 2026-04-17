@@ -196,7 +196,7 @@ async function buildServers() {
   // Always rebuild to ensure latest
   try {
     execSync('npm run build', { cwd: SUPERCLAW_ROOT, stdio: 'inherit', timeout: 60_000 });
-    ok('3 MCP servers built (sc-bridge, sc-peekaboo, sc-memory)');
+    ok('4 MCP servers built (sc-bridge, sc-peekaboo, sc-memory)');
     return true;
   } catch {
     fail('Build failed. Run "npm run typecheck" to see errors.');
@@ -369,9 +369,6 @@ function setupAutoApproval() {
     'mcp__plugin_superclaw_sc-memory__sc_memory_search',
     'mcp__plugin_superclaw_sc-memory__sc_memory_recall',
     'mcp__plugin_superclaw_sc-memory__sc_memory_delete',
-    'mcp__plugin_superclaw_sc-memory__sc_memory_graph_query',
-    'mcp__plugin_superclaw_sc-memory__sc_memory_add_entity',
-    'mcp__plugin_superclaw_sc-memory__sc_memory_add_relation',
     'mcp__plugin_superclaw_sc-memory__sc_memory_log_conversation',
     'mcp__plugin_superclaw_sc-memory__sc_memory_stats',
     'mcp__plugin_superclaw_sc-memory__sc_learning_store',
@@ -468,6 +465,59 @@ async function registerPlugin() {
   return true;
 }
 
+// ─── Phase 7: macOS Scheduled Tasks ─────────────────────────
+
+async function setupSchedules(os) {
+  step(9, 'Setting up scheduled tasks (macOS launchd)...');
+
+  if (os !== 'darwin') {
+    warn('자동 스케줄은 macOS에서만 지원됩니다 (launchd 기반). 건너뜁니다.');
+    return false;
+  }
+
+  try {
+    const { addSchedule, listSchedules, syncPmsetWake } = await import('./lib/schedule-manager.mjs');
+
+    const existing = listSchedules();
+    if (existing.length > 0) {
+      log('기존 등록된 스케줄:');
+      existing.forEach(s => log(`  ${s.name}  ${s.schedule}  (${s.status})`));
+    }
+
+    // learning-consolidate는 superclaw 핵심 기능 — 자동 등록
+    const lcName = 'learning-consolidate';
+    const lcPath = join(SUPERCLAW_ROOT, 'scripts', 'learning-consolidate.mjs');
+    if (!existing.find(s => s.name === lcName) && existsSync(lcPath)) {
+      addSchedule({ name: lcName, nodeScript: lcPath, hour: 3, minute: 0, weekday: 0 });
+      ok(`${lcName} 스케줄 등록 (일요일 03:00)`);
+    } else if (existing.find(s => s.name === lcName)) {
+      ok(`${lcName} 이미 등록됨`);
+    }
+
+    log('');
+    log('커스텀 스케줄 추가 방법:');
+    log('  1. 스크립트 작성 (예: ~/.local/bin/my-task.sh)');
+    log('  2. Claude Code에서 아래와 같이 등록:');
+    log('     import { addSchedule } from "./scripts/lib/schedule-manager.mjs"');
+    log('     addSchedule({ name: "my-task", scriptPath: "/path/to/script.sh", hour: 9, minute: 0 })');
+    log('');
+
+    // pmset wake 동기화 시도
+    const wakeResult = syncPmsetWake();
+    if (wakeResult) {
+      ok(`pmset wake 설정: ${wakeResult.wakeTime} (sleep 시 자동 기상)`);
+    } else {
+      warn('pmset wake 설정 실패. Sleep 중 자동 wake가 필요하면:');
+      log('  echo "$(whoami) ALL=(ALL) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/pmset');
+    }
+
+    return true;
+  } catch (e) {
+    fail(`스케줄 설정 실패: ${e.message}`);
+    return false;
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────
 async function main() {
   console.log(`
@@ -501,6 +551,9 @@ async function main() {
   // Phase 6: MCP auto-approval
   results.approval = setupAutoApproval();
 
+  // Phase 7: macOS Scheduled Tasks (launchd)
+  results.schedules = await setupSchedules(os);
+
   // ─── Summary ─────────────────────────────────────────────
   console.log(`
 \x1b[36m╔══════════════════════════════════════════╗
@@ -518,6 +571,7 @@ async function main() {
     ['Claude Code Plugin', results.plugin],
     ['HUD Statusline', results.hud],
     ['MCP Tool Auto-Approval', results.approval],
+    ['Scheduled Tasks (launchd)', results.schedules],
   ];
 
   for (const [name, success] of items) {
@@ -541,7 +595,7 @@ async function main() {
     - "search memory for..." (persistent memory)
     - "send to phone: hello" (Telegram)
 
-  MCP Tools: 41 tools across 3 servers
+  MCP Tools: 43 tools across 3 servers
   Agents: 29 specialists across 6 domains
   Skills: 15 auto-detected capabilities
 `);

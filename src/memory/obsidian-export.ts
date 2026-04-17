@@ -72,9 +72,9 @@ interface LearningRow {
   created_at: string;
 }
 
-// ---------- Helpers ----------
+// ---------- Helpers (exported for reuse in memory-server.ts) ----------
 
-function sanitizeFilename(name: string): string {
+export function sanitizeFilename(name: string): string {
   return name
     .replace(/[\/\\:*?"<>|]/g, '')
     .replace(/\s+/g, '-')
@@ -83,11 +83,11 @@ function sanitizeFilename(name: string): string {
     .slice(0, 200);
 }
 
-function ensureDir(dir: string): void {
+export function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
-function injectWikilinks(text: string, entityNames: string[]): string {
+export function injectWikilinks(text: string, entityNames: string[]): string {
   if (entityNames.length === 0) return text;
 
   // Sort by length descending so longer names match first
@@ -107,7 +107,7 @@ function injectWikilinks(text: string, entityNames: string[]): string {
   return result;
 }
 
-function formatFrontmatter(fields: Record<string, unknown>): string {
+export function formatFrontmatter(fields: Record<string, unknown>): string {
   const lines: string[] = ['---'];
   for (const [key, value] of Object.entries(fields)) {
     if (value === null || value === undefined) continue;

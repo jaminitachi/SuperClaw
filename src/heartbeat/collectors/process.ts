@@ -45,7 +45,8 @@ export async function collect(
         };
       }
       return { name, running: false };
-    } catch {
+    } catch (err) {
+      console.error('[superclaw]', err instanceof Error ? err.message : err);
       return { name, running: false };
     }
   });
@@ -69,7 +70,7 @@ export async function collect(
             }).trim();
             process = pName || undefined;
           }
-        } catch {}
+        } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
       }
       return { port, open, process };
     })

@@ -98,7 +98,7 @@ SuperClaw depends on multiple external systems (Peekaboo, Node.js, SQLite) and i
    Verify build output exists:
    - `bridge/sc-bridge.cjs` -- Telegram + messaging bridge
    - `bridge/sc-peekaboo.cjs` -- Peekaboo (macOS automation) bridge
-   - `bridge/sc-memory.cjs` -- Memory/knowledge graph bridge
+   - `bridge/sc-memory.cjs` -- Memory bridge
 
 4. **Configure Telegram** (optional): Ask the user if they want Telegram integration.
    ```

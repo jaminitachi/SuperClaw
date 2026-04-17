@@ -1,61 +1,24 @@
 import { dim, RESET, DIM, MAGENTA, YELLOW, GREEN, CYAN } from '../colors.mjs';
 
-// SuperClaw agent type code table
+// SuperClaw v4 agent type code table
 const AGENT_CODES = {
-  // Orchestration
-  'sc-atlas': 'AT',
-  'sc-prometheus': 'PR',
-  'sc-metis': 'ME',
-  'sc-momus': 'MO',
-  'sc-junior': 'jr',
+  // Dev Team
+  'dev-architect': 'A',
+  'dev-backend': 'BE',
+  'dev-frontend': 'FE',
+  'dev-qa': 'QA',
 
-  // Code
-  'sc-architect': 'A',
-  'sc-architect-low': 'a',
-  'sc-frontend': 'F',
-
-  // Review
-  'sc-code-reviewer': 'CR',
-  'sc-code-reviewer-low': 'cr',
-  'sc-security-reviewer': 'SR',
-  'sc-security-reviewer-low': 'sr',
-  'sc-performance': 'PF',
-  'sc-performance-high': 'PF',
-
-  // Debug
-  'sc-debugger': 'D',
-  'sc-debugger-high': 'D!',
-  'gateway-debugger': 'GD',
-
-  // Test
-  'sc-test-engineer': 'TE',
-  'sc-verifier': 'V',
-
-  // Memory
-  'memory-curator': 'MC',
-  'memory-curator-low': 'mc',
-  'memory-curator-high': 'MC',
-
-  // Research
-  'paper-reader': 'PR',
-  'literature-reviewer': 'LR',
-  'experiment-tracker': 'ET',
-  'data-analyst': 'DA',
+  // Research Team
+  'research-reviewer': 'RR',
+  'research-writer': 'RW',
   'research-assistant': 'RA',
-  'research-code-reviewer': 'RC',
 
-  // Infrastructure
-  'mac-control': 'M',
-  'mac-control-low': 'm',
-  'system-monitor': 'SM',
-  'system-monitor-high': 'SM',
-  'heartbeat-mgr': 'HB',
-  'cron-mgr': 'CJ',
-  'pipeline-builder': 'PL',
-  'pipeline-builder-high': 'PL',
-  'skill-forger': 'SF',
-  'workflow-monitor': 'WM',
-  'setup-validator': 'SV',
+  // Infra Team
+  'infra-monitor': 'IM',
+  'infra-mac': 'MC',
+
+  // Verify
+  'verify': 'VF',
 
   // Generic
   'Bash': 'B',

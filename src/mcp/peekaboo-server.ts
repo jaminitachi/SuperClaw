@@ -228,6 +228,14 @@ server.tool(
     language: z.enum(['applescript', 'jxa']).optional().describe('Script language (default: applescript)'),
   },
   async ({ script, language }) => {
+    // Security: block dangerous AppleScript patterns that could be abused
+    const DANGEROUS_PATTERNS = ['do shell script', 'System Events.*keystroke', 'key code'];
+    for (const pat of DANGEROUS_PATTERNS) {
+      if (new RegExp(pat, 'i').test(script)) {
+        return { content: [{ type: 'text', text: `BLOCKED: Script contains dangerous pattern "${pat}". Use specific tools instead.` }] };
+      }
+    }
+
     const result = language === 'jxa'
       ? await osascriptMod.runJXA(script)
       : await osascriptMod.runAppleScript(script);

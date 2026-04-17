@@ -1,194 +1,69 @@
 #!/usr/bin/env node
 /**
- * UserPromptSubmit hook — detects SuperClaw keywords, suggests skill invocations,
- * and proposes team compositions for complex requests.
+ * UserPromptSubmit hook — v4 simplified keyword detector.
  *
- * Inspired by: Ruflo (task complexity routing), Claude-Mem (progressive context),
- * OMC (magic keywords + auto skill injection).
+ * v4 philosophy: PO (Opus) handles intent detection directly.
+ * This hook only triggers for:
+ *   1. ultrawork mode (ulw, ultrawork, etc.)
+ *   2. mac-control (screenshot)
+ *   3. telegram (send to phone)
+ *
+ * Team composition, agent roster, and skill routing are all handled by PO.
  */
+if (process.env.SUPERCLAW_DAEMON === '1') {
+  console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+  process.exit(0);
+}
 import { readStdin } from './lib/stdin.mjs';
+import { trace } from './lib/hook-logger.mjs';
+import { readFileSync, writeFileSync, appendFileSync, renameSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+import { sessionDir, ulwStatePath, ulwGatesPath, ulwBoardPath, ulwVerifyLogPath } from './lib/ulw-paths.mjs';
 
-// --- Single-skill keyword patterns ---
-// NOTE: Korean characters don't work with \b (word boundary). Use raw patterns for Korean.
+// --- v4: Only 3 keyword patterns (PO handles everything else) ---
 const SC_KEYWORDS = [
+  { pattern: /(?:\b(?:ulw|ultrawork)\b|완료될\s*때까지|끝날\s*때까지|다\s*해줘)/i, skill: 'superclaw:ultrawork', action: 'execute' },
   { pattern: /(?:\b(?:screenshot|capture screen|take a picture)|스크린샷)/i, skill: 'superclaw:mac-control', action: 'screenshot' },
   { pattern: /(?:\b(?:send to phone|telegram|notify me|text me)|텔레그램)/i, skill: 'superclaw:telegram-control', action: 'send' },
-  { pattern: /(?:\b(?:heartbeat|system health|check status|what's running)|상태\s*확인)/i, skill: 'superclaw:heartbeat', action: 'check' },
-  { pattern: /(?:\b(?:remember this|save this|store knowledge)|기억해|저장해)/i, skill: 'superclaw:memory-mgr', action: 'store' },
-  { pattern: /(?:\b(?:search memory|recall|what did we)|기억|뭐였더라)/i, skill: 'superclaw:memory-mgr', action: 'search' },
-  { pattern: /(?:\b(?:schedule|every morning|cron|recurring)|스케줄|매일)/i, skill: 'superclaw:cron-mgr', action: 'schedule' },
-  { pattern: /(?:\b(?:pipeline|automate|morning brief)|자동화)/i, skill: 'superclaw:automation-pipeline', action: 'build' },
-  { pattern: /(?:\b(?:read paper|summarize paper|arxiv)|논문)/i, skill: 'superclaw:paper-review', action: 'read' },
-  { pattern: /(?:\b(?:log experiment|record results|experiment)|실험)/i, skill: 'superclaw:experiment-log', action: 'log' },
-  { pattern: /(?:\b(?:literature review|related work|survey)|문헌\s*조사)/i, skill: 'superclaw:lit-review', action: 'review' },
-  { pattern: /(?:\b(?:analyze data|correlate|statistics)|통계|데이터\s*분석)/i, skill: 'superclaw:research-analysis', action: 'analyze' },
-  { pattern: /(?:\b(?:check PRs|CI status|developer report)|PR\s*확인)/i, skill: 'superclaw:dev-workflow', action: 'report' },
-  { pattern: /\b(setup superclaw|install superclaw)\b/i, skill: 'superclaw:setup', action: 'setup' },
-  { pattern: /^(setup|설정|초기\s*설정|configure|get\s*started|getting\s*started)$/i, skill: 'superclaw:setup', action: 'setup' },
-  { pattern: /(?:\b(?:create skill|skill forge|make a skill)|스킬\s*만들)/i, skill: 'superclaw:skill-forge', action: 'forge' },
-  { pattern: /(?:\b(?:click on|open app|type into|window)|앱\s*열어)/i, skill: 'superclaw:mac-control', action: 'control' },
-  // Developer workflow keywords
-  { pattern: /(?:\b(?:architect)|아키텍처|구조\s*설계|시스템\s*설계)/i, skill: 'superclaw:sc-architect', action: 'design' },
-  { pattern: /(?:\b(?:frontend|UI)|프론트엔드|컴포넌트|대시보드)/i, skill: 'superclaw:sc-frontend', action: 'implement' },
-  { pattern: /(?:\b(?:code\s*review|review\s*this)|코드\s*리뷰|리뷰해)/i, skill: 'superclaw:sc-code-reviewer', action: 'review' },
-  { pattern: /(?:\b(?:security|vulnerability|OWASP)|보안|취약점)/i, skill: 'superclaw:sc-security-reviewer', action: 'scan' },
-  { pattern: /(?:\b(?:debug)|디버그|디버깅|버그|에러\s*분석)/i, skill: 'superclaw:sc-debugger', action: 'debug' },
-  { pattern: /(?:\b(?:test|TDD|coverage)|테스트|커버리지)/i, skill: 'superclaw:sc-test-engineer', action: 'test' },
-  { pattern: /(?:\b(?:performance|bottleneck)|성능|벤치마크|병목)/i, skill: 'superclaw:sc-performance', action: 'analyze' },
-  // Ultrawork / Ralph Loop
-  { pattern: /(?:\b(?:ulw|ultrawork)|완료될\s*때까지|끝날\s*때까지|다\s*해줘)/i, skill: 'superclaw:ultrawork', action: 'execute' },
 ];
 
-// --- Team composition patterns (complex requests → multi-agent teams) ---
-// Inspired by Ruflo's task complexity detection and OMC's team auto-composition
-// Team patterns use functions for flexible Korean+English matching
-const TEAM_PATTERNS = [
-  {
-    // Dev: 코드 작성, 만들어, 구현, 개발 — OR 조건 (단일 키워드로도 매칭)
-    test: (s) => /(만들|구현|개발|작성|코드|코딩|build|implement|develop|create|write code)/i.test(s),
-    team: 'dev',
-    description: 'Full Development Team',
-    agents: [
-      { type: 'superclaw:sc-architect', role: 'Architecture & design', model: 'opus' },
-      { type: 'superclaw:sc-junior', role: 'Implementation', model: 'sonnet' },
-      { type: 'superclaw:sc-test-engineer', role: 'Testing & QA', model: 'sonnet' },
-      { type: 'superclaw:sc-code-reviewer', role: 'Code review', model: 'opus' },
-    ],
-  },
-  {
-    // Research: 논문, 연구, 조사, 리서치 — OR 조건
-    test: (s) => /(연구|조사|논문|리서치|research|paper|investigate|survey|literature)/i.test(s),
-    team: 'research',
-    description: 'Research Team',
-    agents: [
-      { type: 'superclaw:paper-reader', role: 'Paper analysis', model: 'sonnet' },
-      { type: 'superclaw:literature-reviewer', role: 'Literature synthesis', model: 'opus' },
-      { type: 'superclaw:research-assistant', role: 'Citation & lookup', model: 'haiku' },
-      { type: 'superclaw:data-analyst', role: 'Data analysis', model: 'sonnet' },
-    ],
-  },
-  {
-    test: (s) => /(리팩토링|리팩터|정리해|refactor|restructure|재구성|클린업|cleanup)/i.test(s),
-    team: 'refactor',
-    description: 'Refactoring Team',
-    agents: [
-      { type: 'superclaw:sc-architect', role: 'Architecture review', model: 'opus' },
-      { type: 'superclaw:sc-junior', role: 'Code changes', model: 'sonnet' },
-      { type: 'superclaw:sc-test-engineer', role: 'Regression testing', model: 'sonnet' },
-    ],
-  },
-  {
-    // Debug: 고쳐, 수정, 해결, 버그, 에러 — OR 조건 (하나만 있어도 매칭)
-    test: (s) => /(고쳐|수정해|해결|버그|에러|오류|crash|fix|debug|troubleshoot|bug|error)/i.test(s),
-    team: 'debug',
-    description: 'Debug Team',
-    agents: [
-      { type: 'superclaw:sc-debugger', role: 'Root cause analysis', model: 'sonnet' },
-      { type: 'superclaw:sc-architect', role: 'Architecture context', model: 'opus' },
-      { type: 'superclaw:sc-test-engineer', role: 'Reproduce & verify', model: 'sonnet' },
-    ],
-  },
-  {
-    test: (s) => /(배포|출시|deploy|release|production|프로덕션|publish)/i.test(s),
-    team: 'deploy',
-    description: 'Deploy & Review Team',
-    agents: [
-      { type: 'superclaw:sc-security-reviewer', role: 'Security audit', model: 'opus' },
-      { type: 'superclaw:sc-code-reviewer', role: 'Final review', model: 'opus' },
-      { type: 'superclaw:sc-test-engineer', role: 'Integration tests', model: 'sonnet' },
-    ],
-  },
-  {
-    // Verify/Check: 체크, 확인, 검증, 테스트 — QA 팀
-    test: (s) => /(체크|확인해|검증|점검|verify|check|validate|audit|감사)/i.test(s),
-    team: 'verify',
-    description: 'Verification Team',
-    agents: [
-      { type: 'superclaw:sc-code-reviewer', role: 'Code review', model: 'opus' },
-      { type: 'superclaw:sc-test-engineer', role: 'Test & verify', model: 'sonnet' },
-      { type: 'superclaw:sc-security-reviewer', role: 'Security check', model: 'opus' },
-    ],
-  },
-  {
-    // Frontend: UI, 프론트, 대시보드, 컴포넌트, 화면, 페이지
-    test: (s) => /(프론트|frontend|UI|대시보드|컴포넌트|화면|페이지|웹앱|react|vue|next)/i.test(s),
-    team: 'frontend',
-    description: 'Frontend Team',
-    agents: [
-      { type: 'superclaw:sc-frontend', role: 'UI/UX implementation', model: 'sonnet' },
-      { type: 'superclaw:sc-architect', role: 'Component architecture', model: 'opus' },
-      { type: 'superclaw:sc-test-engineer', role: 'UI testing', model: 'sonnet' },
-    ],
-  },
-  {
-    // Backend: 서버, API, 백엔드, 데이터베이스, DB, 인증
-    test: (s) => /(백엔드|backend|서버|server|API|데이터베이스|DB|인증|auth|endpoint|REST|GraphQL)/i.test(s),
-    team: 'backend',
-    description: 'Backend Team',
-    agents: [
-      { type: 'superclaw:sc-architect', role: 'API & system design', model: 'opus' },
-      { type: 'superclaw:sc-junior', role: 'Backend implementation', model: 'sonnet' },
-      { type: 'superclaw:sc-test-engineer', role: 'API testing', model: 'sonnet' },
-      { type: 'superclaw:sc-security-reviewer', role: 'Auth & security review', model: 'opus' },
-    ],
-  },
-  {
-    // Infra/DevOps: 인프라, CI/CD, 도커, 쿠버네티스, 배포 파이프라인
-    test: (s) => /(인프라|infra|devops|CI\/CD|도커|docker|쿠버|kubernetes|k8s|terraform|AWS|GCP|클라우드|cloud)/i.test(s),
-    team: 'infra',
-    description: 'Infra & DevOps Team',
-    agents: [
-      { type: 'superclaw:sc-architect', role: 'Infrastructure design', model: 'opus' },
-      { type: 'superclaw:sc-junior', role: 'Config & scripting', model: 'sonnet' },
-      { type: 'superclaw:sc-security-reviewer', role: 'Infra security', model: 'opus' },
-    ],
-  },
-  {
-    // Data/ML: 데이터, ML, 모델, 학습, 분석, 파이프라인
-    test: (s) => /(데이터\s*분석|데이터\s*파이프|ML|머신러닝|모델\s*학습|training|dataset|ETL|통계|analytics)/i.test(s),
-    team: 'data',
-    description: 'Data & ML Team',
-    agents: [
-      { type: 'superclaw:data-analyst', role: 'Data analysis & visualization', model: 'sonnet' },
-      { type: 'superclaw:sc-architect', role: 'Pipeline architecture', model: 'opus' },
-      { type: 'superclaw:sc-junior', role: 'Data engineering', model: 'sonnet' },
-      { type: 'superclaw:experiment-tracker', role: 'Experiment tracking', model: 'sonnet' },
-    ],
-  },
-];
+// --- Task-based provider routing (OMO) — kept for external model routing ---
+const TASK_PROVIDER_ROUTING = {
+  coding:       { provider: 'codex',  command: 'codex exec -s workspace-write', why: 'GPT excels at code generation' },
+  vision:       { provider: 'gemini', command: 'GOOGLE_GENAI_USE_GCA=true gemini -p', flags: '-y -o text', why: 'Gemini has strong multimodal/vision' },
+  reasoning:    { provider: 'claude', model: 'opus', why: 'Best reasoning capability' },
+  data:         { provider: 'codex',  command: 'codex exec -s workspace-write', why: 'Strong at pandas/data code execution' },
+  architecture: { provider: 'claude', model: 'opus', why: 'Best at high-level system design' },
+  document:     { provider: 'gemini', command: 'GOOGLE_GENAI_USE_GCA=true gemini -p', flags: '-y -o text', why: 'Large context window for long documents' },
+  creative:     { provider: 'claude', model: 'opus', why: 'Best at creative/writing tasks' },
+  frontend:     { provider: 'gemini', command: 'GOOGLE_GENAI_USE_GCA=true gemini -p', flags: '-y -o text', why: 'Gemini excels at visual/UI design and frontend' },
+};
 
-// Full agent roster for dynamic team composition
-const AGENT_ROSTER = [
-  { type: 'superclaw:sc-architect', capability: 'Architecture, system design, structural analysis', model: 'opus' },
-  { type: 'superclaw:sc-junior', capability: 'Code implementation, scripting, file changes', model: 'sonnet' },
-  { type: 'superclaw:sc-test-engineer', capability: 'Testing, QA, coverage, TDD', model: 'sonnet' },
-  { type: 'superclaw:sc-code-reviewer', capability: 'Code review, quality analysis, best practices', model: 'opus' },
-  { type: 'superclaw:sc-security-reviewer', capability: 'Security audit, vulnerability scan, OWASP', model: 'opus' },
-  { type: 'superclaw:sc-debugger', capability: 'Bug analysis, root cause, error tracing', model: 'sonnet' },
-  { type: 'superclaw:sc-debugger-high', capability: 'Complex debugging, concurrency, race conditions', model: 'opus' },
-  { type: 'superclaw:sc-performance', capability: 'Performance profiling, bottleneck analysis', model: 'sonnet' },
-  { type: 'superclaw:sc-frontend', capability: 'UI/UX, React, dashboards, data visualization', model: 'sonnet' },
-  { type: 'superclaw:paper-reader', capability: 'Academic paper extraction and analysis', model: 'sonnet' },
-  { type: 'superclaw:literature-reviewer', capability: 'Multi-paper synthesis, research gaps', model: 'opus' },
-  { type: 'superclaw:research-assistant', capability: 'Citation lookup, BibTeX, quick literature search', model: 'haiku' },
-  { type: 'superclaw:data-analyst', capability: 'Data analysis, statistics, visualization, time-series', model: 'sonnet' },
-  { type: 'superclaw:experiment-tracker', capability: 'Experiment logging, parameter tracking, comparison', model: 'sonnet' },
-];
+function isUltraworkActive(sessionId) {
+  try {
+    const gatesPath = ulwGatesPath(sessionId);
+    if (!gatesPath || !existsSync(gatesPath)) return false;
+    const gates = JSON.parse(readFileSync(gatesPath, 'utf-8'));
+    return gates.ultraworkActive === true;
+  } catch { return false; }
+}
 
-// Dynamic team composition marker (no predefined agents — Claude picks from roster)
-const DYNAMIC_TEAM = 'dynamic';
-
-// --- Ecomode: task complexity → model suggestion ---
-// Inspired by Ruflo's Q-Learning router & OMC's ecomode
-function suggestModel(prompt) {
-  const complexPatterns = /\b(architect|debug|security|refactor|race condition|concurrency|distributed|complex|아키텍처|보안|디버깅|리팩토링)\b/i;
-  const simplePatterns = /\b(find|list|check|status|lookup|show|ls|cat|read|확인|목록|보여)\b/i;
-  const mediumPatterns = /\b(implement|build|create|add|fix|update|만들어|구현|추가|수정)\b/i;
-
-  if (complexPatterns.test(prompt)) return { model: 'opus', reason: 'complex reasoning task' };
-  if (simplePatterns.test(prompt)) return { model: 'haiku', reason: 'simple lookup/status' };
-  if (mediumPatterns.test(prompt)) return { model: 'sonnet', reason: 'standard implementation' };
-  return { model: 'sonnet', reason: 'default' };
+function detectTaskType(prompt) {
+  const patterns = [
+    { type: 'frontend', test: /(프론트|frontend|UI|UX|디자인|design|대시보드|dashboard|CSS|스타일|style|레이아웃|layout|화면|페이지|컴포넌트)/i },
+    { type: 'coding', test: /(코드|코딩|구현|개발|implement|build|create|write code|function|class|module|스크립트|script)/i },
+    { type: 'vision', test: /(이미지|사진|스크린샷|OCR|image|photo|screenshot|chart|diagram|visual|그림|차트)/i },
+    { type: 'data', test: /(데이터|CSV|JSON|pandas|통계|statistics|dataset|데이터\s*분석|data\s*analysis|엑셀|excel)/i },
+    { type: 'document', test: /(문서|논문|paper|document|PDF|요약.*문서|읽어.*문서|보고서|report)/i },
+    { type: 'architecture', test: /(아키텍처|구조\s*설계|system\s*design|architecture|시스템\s*설계)/i },
+    { type: 'reasoning', test: /(분석|추론|이유|왜|debug|reason|analyze|why|복잡|complex|증명|proof)/i },
+    { type: 'creative', test: /(글쓰기|writing|creative|작문|소설|시|에세이|essay)/i },
+  ];
+  for (const p of patterns) {
+    if (p.test.test(prompt)) return p.type;
+  }
+  return null;
 }
 
 async function main() {
@@ -202,6 +77,8 @@ async function main() {
   try { input = JSON.parse(raw); } catch { console.log(JSON.stringify({ continue: true })); return; }
 
   const prompt = input?.prompt ?? input?.message ?? input?.content ?? '';
+  const sessionId = input?.session_id || input?.sessionId || null;
+  trace(sessionId, 'hook:UserPromptSubmit:input', { prompt: prompt.slice(0, 500) });
   if (!prompt) { console.log(JSON.stringify({ continue: true })); return; }
 
   // Strip code blocks and URLs to avoid false positives
@@ -211,15 +88,7 @@ async function main() {
     .replace(/https?:\/\/\S+/g, '')
     .replace(/<[^>]+>/g, '');
 
-  // Check team composition patterns first (complex multi-agent requests)
-  const teamMatches = [];
-  for (const tp of TEAM_PATTERNS) {
-    if (tp.test(cleaned)) {
-      teamMatches.push(tp);
-    }
-  }
-
-  // Check single-skill keyword patterns
+  // Check keyword patterns
   const matches = [];
   for (const kw of SC_KEYWORDS) {
     if (kw.pattern.test(cleaned)) {
@@ -227,136 +96,120 @@ async function main() {
     }
   }
 
-  // Check for team toggle keyword ("팀", "team") before early return
-  const hasTeamToggle = /(?:\bteam\b|팀)/i.test(cleaned);
+  // OMO provider routing (non-keyword, task-type based)
+  // Suppress when ULW is active — PO handles all model routing
+  const taskType = detectTaskType(cleaned);
+  let omoHint = '';
+  const ulwActive = isUltraworkActive(sessionId);
+  if (!ulwActive && matches.length === 0 && taskType) {
+    const route = TASK_PROVIDER_ROUTING[taskType];
+    if (route && route.provider !== 'claude') {
+      const flags = route.flags ? ` ${route.flags}` : '';
+      omoHint = `[SUPERCLAW OMO ROUTING] Task type "${taskType}" → ${route.provider} recommended (${route.why}).\nConsider: Bash tool → ${route.command} "task prompt"${flags} 2>/dev/null\n`;
+    }
+  }
 
-  if (matches.length === 0 && teamMatches.length === 0 && !hasTeamToggle) {
+  if (matches.length === 0 && !omoHint) {
     console.log(JSON.stringify({ continue: true }));
     return;
   }
 
-  // Extract skills and actions BEFORE team block (needed for ULW detection)
-  const skills = [...new Set(matches.map(m => m.skill))];
-  const actions = matches.map(m => m.action);
-
   const parts = [];
 
-  // Detect ULW mode and mandatory flag
-  const isUltrawork = skills.includes('superclaw:ultrawork') || actions.includes('execute');
-  const isMandatory = isUltrawork || hasTeamToggle;
-
-  // Build effective team list, or trigger dynamic composition
-  const useDynamic = teamMatches.length === 0 && isMandatory;
-  const effectiveTeams = teamMatches.length > 0 ? teamMatches : [];
-
-  if (effectiveTeams.length > 0) {
-    const modelSuggestion = suggestModel(cleaned);
-
-    // Merge all matched teams' agents, deduplicating by agent type
-    const seenAgents = new Set();
-    const mergedAgents = [];
-    const teamNames = [];
-    for (const team of effectiveTeams) {
-      teamNames.push(team.description);
-      for (const agent of team.agents) {
-        if (!seenAgents.has(agent.type)) {
-          seenAgents.add(agent.type);
-          mergedAgents.push(agent);
-        }
-      }
-    }
-
-    const teamLabel = teamNames.join(' + ');
-
-    if (isMandatory) {
-      // Mandatory mode (ULW or "팀/team" keyword): inject execution plan
-      const modeLabel = isUltrawork ? 'ULW' : 'Team';
-      parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${teamLabel}" activated.`);
-      parts.push(`MANDATORY EXECUTION PLAN (${modeLabel} Mode):`);
-      parts.push(`You MUST execute this plan. This is not a suggestion.`);
-      parts.push(``);
-      parts.push(`== PHASE 1: TEAM EXECUTION ==`);
-      const steps = mergedAgents.map((agent, i) => {
-        const parallel = i > 0 && mergedAgents[i-1].model !== 'opus' ? ' (parallel with previous)' : '';
-        return `  Step ${i+1}: Spawn Agent with subagent_type="${agent.type}" model="${agent.model}" role="${agent.role}"${parallel}`;
-      });
-      parts.push(...steps);
-      parts.push(``);
-      parts.push(`== PHASE 2: QA VERIFICATION (mandatory, never skip) ==`);
-      let qStep = mergedAgents.length + 1;
-      parts.push(`  Step ${qStep++}: Read ALL changed files yourself (Read tool) — never trust agent claims`);
-      parts.push(`  Step ${qStep++}: Run build/tests/lint to verify correctness`);
-      if (!seenAgents.has('superclaw:sc-test-engineer')) {
-        parts.push(`  Step ${qStep++}: Spawn Agent with subagent_type="superclaw:sc-test-engineer" model="sonnet" role="QA verification"`);
-      }
-      if (!seenAgents.has('superclaw:sc-code-reviewer')) {
-        parts.push(`  Step ${qStep++}: Spawn Agent with subagent_type="superclaw:sc-code-reviewer" model="opus" role="Quality review"`);
-      }
-      parts.push(``);
-      parts.push(`== PHASE 3: PM SIGN-OFF (you are the CTO — final judgment) ==`);
-      parts.push(`  Step ${qStep++}: Review ALL results as CTO/PM. Ask yourself:`);
-      parts.push(`    - Does this FULLY satisfy the user's original request?`);
-      parts.push(`    - Are there edge cases, bugs, or missing features?`);
-      parts.push(`    - Would I ship this to production? If NO → go back to Phase 1.`);
-      parts.push(`  Step ${qStep++}: Log verification via sc_verification_log`);
-      parts.push(`  Step ${qStep++}: Store learnings via sc_learning_store`);
-      parts.push(``);
-      parts.push(`RULES:`);
-      parts.push(`  - If Phase 2 QA fails → fix and re-run Phase 1 with learnings`);
-      parts.push(`  - If Phase 3 PM rejects → fix and re-run. Max 3 full cycles.`);
-      parts.push(`  - Escalation: haiku→sonnet→opus on any agent failure`);
-      parts.push(`  - Do NOT stop until the user's completion condition is FULFILLED.`);
-    } else {
-      // Normal mode: show all matched teams with their agents
-      parts.push(`[SUPERCLAW TEAM DETECTED] Complex request → "${teamLabel}" recommended.`);
-      for (const team of effectiveTeams) {
-        parts.push(`Team "${team.team}":`);
-        for (const agent of team.agents) {
-          parts.push(`  - ${agent.type} (${agent.model}): ${agent.role}`);
-        }
-      }
-      parts.push(`Ecomode suggestion: default model=${modelSuggestion.model} (${modelSuggestion.reason})`);
-      parts.push('Use Agent tool with these subagent_types for optimal team delegation. Run independent agents in parallel.');
-    }
-  } else if (useDynamic) {
-    // No predefined team matched but mandatory mode active → dynamic team composition
-    const modeLabel = isUltrawork ? 'ULW' : 'Team';
-    parts.push(`[SUPERCLAW DYNAMIC TEAM] No predefined team matched. You MUST compose a custom team.`);
-    parts.push(`MANDATORY DYNAMIC TEAM COMPOSITION (${modeLabel} Mode):`);
-    parts.push(``);
-    parts.push(`Analyze the user's request and pick 2-5 agents from this roster:`);
-    for (const agent of AGENT_ROSTER) {
-      parts.push(`  - ${agent.type} (${agent.model}): ${agent.capability}`);
-    }
-    parts.push(``);
-    parts.push(`PHASE 1 — TEAM EXECUTION:`);
-    parts.push(`  1. Read the user's request carefully`);
-    parts.push(`  2. Select the most relevant agents (2-5) and assign each a specific role for THIS task`);
-    parts.push(`  3. ALWAYS include sc-test-engineer for QA`);
-    parts.push(`  4. Spawn them using Agent tool — run independent agents in parallel`);
-    parts.push(``);
-    parts.push(`PHASE 2 — QA VERIFICATION (never skip):`);
-    parts.push(`  5. Read ALL changed files yourself (Read tool) — never trust agent claims`);
-    parts.push(`  6. Run build/tests/lint to verify`);
-    parts.push(`  7. If sc-test-engineer wasn't in team, spawn it now for QA`);
-    parts.push(``);
-    parts.push(`PHASE 3 — PM SIGN-OFF (you are the CTO):`);
-    parts.push(`  8. Review ALL results. Does this FULLY satisfy the user's request?`);
-    parts.push(`  9. If NO → go back to Phase 1 with learnings. Max 3 cycles.`);
-    parts.push(`  10. Log via sc_verification_log, store via sc_learning_store`);
-    parts.push(``);
-    parts.push(`Escalation: haiku→sonnet→opus on any failure.`);
-    parts.push(`Do NOT stop until the user's request is FULFILLED.`);
+  // OMO routing hint
+  if (omoHint) {
+    parts.push(omoHint);
   }
 
-  // Single skill matches
-  if (skills.length > 0) {
-    // Ultrawork gets a special announcement
+  // Skill matches
+  if (matches.length > 0) {
+    const skills = [...new Set(matches.map(m => m.skill))];
+    const actions = matches.map(m => m.action);
+
     let announcement = '';
     if (actions.includes('execute') && skills.includes('superclaw:ultrawork')) {
-      announcement = '\n\nIMPORTANT: Before doing anything else, display this announcement to the user:\n"**ultrawork!** 실행했습니다. 완료 조건을 확인하고 정확한 구현을 시작합니다."\nThen proceed with the skill.';
+      announcement = '\n\nIMPORTANT: Before doing anything else, display this announcement to the user:\n"**ultrawork!** Activated. Verifying completion conditions and starting precise implementation."\nThen proceed with the skill.';
     }
     parts.push(`[SUPERCLAW KEYWORD DETECTED] User prompt matched SuperClaw keyword pattern. MUST invoke skill: ${skills.join(', ')}${announcement}`);
+
+    // Auto-create ultrawork state files when ulw/ultrawork detected — SESSION-SCOPED
+    if (actions.includes('execute') && skills.includes('superclaw:ultrawork')) {
+      if (!sessionId) {
+        // No session id in hook input → we cannot write session-scoped state.
+        // Never fall back to global — parallel sessions would collide.
+        trace(null, 'skill:activation:skipped', { reason: 'no-session-id' });
+      } else {
+        const sDir = sessionDir(sessionId);
+        const ulwPath = ulwStatePath(sessionId);
+        const gatesPath = ulwGatesPath(sessionId);
+        const boardPath = ulwBoardPath(sessionId);
+        const verifyLogPath = ulwVerifyLogPath(sessionId);
+
+        if (sDir && ulwPath && gatesPath && boardPath && verifyLogPath) {
+          const ulwAlreadyActive = existsSync(ulwPath);
+          const now = new Date().toISOString();
+
+          if (ulwAlreadyActive) {
+            // Re-entry: increment iteration, reset round timestamps, keep identity fields
+            let prevState = {};
+            try { prevState = JSON.parse(readFileSync(ulwPath, 'utf-8')); } catch {}
+            const nextIteration = (prevState.iteration ?? 1) + 1;
+            const newState = {
+              ...prevState,
+              iteration: nextIteration,
+              roundStartedAt: now,
+              lastActivityAt: now,
+              completed: false,
+            };
+            const stateTmp = ulwPath + '.tmp.' + process.pid;
+            writeFileSync(stateTmp, JSON.stringify(newState, null, 2));
+            renameSync(stateTmp, ulwPath);
+
+            // Partial gates reset: keep ultraworkActive and tddRequired, wipe progress flags
+            let prevGates = {};
+            try { prevGates = JSON.parse(readFileSync(gatesPath, 'utf-8')); } catch {}
+            const resetGates = {
+              ultraworkActive: true,
+              tddRequired: prevGates.tddRequired !== undefined ? prevGates.tddRequired : true,
+              planApproved: false,
+              testsExist: false,
+              testsRun: false,
+              testsRedConfirmed: false,
+              testsGreenConfirmed: false,
+            };
+            // testsPassed 필드는 삭제 (resetGates에 포함 안 함)
+            const gatesTmp = gatesPath + '.tmp.' + process.pid;
+            writeFileSync(gatesTmp, JSON.stringify(resetGates));
+            renameSync(gatesTmp, gatesPath);
+
+            // Append round-marker to board and verify log
+            const roundMarker = JSON.stringify({ type: 'round-marker', round: nextIteration, ts: now }) + '\n';
+            try { appendFileSync(boardPath, roundMarker); } catch {}
+            try { appendFileSync(verifyLogPath, roundMarker); } catch {}
+
+          } else {
+            // Fresh ULW session — write state with iteration:1
+            writeFileSync(ulwPath, JSON.stringify({
+              active: true,
+              startedAt: now,
+              mode: 'po-team',
+              sessionId: sessionId,
+              iteration: 1,
+            }, null, 2));
+
+            // Fresh gates
+            const gatesData = JSON.stringify({"planApproved":false,"tddRequired":true,"testsExist":false,"testsRun":false,"testsRedConfirmed":false,"testsGreenConfirmed":false,"ultraworkActive":true});
+            const tmpPath = gatesPath + '.tmp.' + process.pid;
+            writeFileSync(tmpPath, gatesData);
+            renameSync(tmpPath, gatesPath);
+
+            // Clear ULW tracking files for fresh session
+            try { writeFileSync(boardPath, ''); } catch {}
+            try { writeFileSync(verifyLogPath, ''); } catch {}
+          }
+        }
+      }
+    }
   }
 
   console.log(JSON.stringify({
@@ -366,6 +219,14 @@ async function main() {
       additionalContext: parts.join('\n'),
     },
   }));
+
+  // Trace output
+  const skills = matches.length > 0 ? [...new Set(matches.map(m => m.skill))] : [];
+  trace(sessionId, 'hook:UserPromptSubmit:output', {
+    additionalContext: parts.join('\n'),
+    skillsMatched: skills,
+    taskType: taskType || 'none',
+  });
 }
 
 main().catch(() => {

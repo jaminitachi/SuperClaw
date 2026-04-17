@@ -43,7 +43,7 @@ export async function collect(): Promise<SystemMetrics> {
         disks.push({ total, used, free, percent, mount });
       }
     }
-  } catch {}
+  } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
 
   return {
     cpu: {

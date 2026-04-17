@@ -1,4 +1,7 @@
-import { execSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 export interface CalendarMetrics {
   eventsToday: number;
@@ -10,10 +13,12 @@ export async function collect(days = 1): Promise<CalendarMetrics> {
   const metrics: CalendarMetrics = { eventsToday: 0, events: [] };
 
   try {
+    // Clamp `days` to a safe integer to prevent any numeric injection
+    const safeDays = Math.max(1, Math.min(365, Math.trunc(days)));
     const script = `
       tell application "Calendar"
         set today to current date
-        set endDate to today + (${days} * days)
+        set endDate to today + (${safeDays} * days)
         set eventList to ""
         repeat with cal in calendars
           set evts to (every event of cal whose start date >= today and start date <= endDate)
@@ -24,10 +29,11 @@ export async function collect(days = 1): Promise<CalendarMetrics> {
         return eventList
       end tell
     `;
-    const output = execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, {
-      encoding: 'utf-8',
+    // Use execFile with argument array — avoids shell interpolation entirely
+    const { stdout } = await execFileAsync('osascript', ['-e', script], {
       timeout: 10000,
-    }).trim();
+    });
+    const output = stdout.trim();
 
     if (output) {
       const lines = output.split('\n').filter(Boolean);

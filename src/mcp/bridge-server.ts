@@ -3,8 +3,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { TelegramPoller } from '../telegram/poller.js';
 import { loadConfig } from '../config/defaults.js';
-import { CronScheduler } from '../cron/scheduler.js';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -15,8 +15,6 @@ const poller = new TelegramPoller({
   defaultChatId: config.telegram?.defaultChatId ?? '',
   allowFrom: config.telegram?.allowFrom ?? [],
 });
-
-const cronScheduler = new CronScheduler(join(homedir(), 'superclaw', 'data'));
 
 const server = new McpServer({
   name: 'sc-bridge',
@@ -99,7 +97,8 @@ server.tool(
         if (data.ok && data.result) {
           botInfo = `@${data.result.username ?? data.result.first_name ?? 'unknown'}`;
         }
-      } catch {
+      } catch (err) {
+        console.error('[superclaw]', err instanceof Error ? err.message : err);
         botInfo = 'unreachable';
       }
     }
@@ -143,7 +142,8 @@ server.tool(
         const res = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
         const data = (await res.json()) as { ok: boolean };
         telegramOk = data.ok;
-      } catch {
+      } catch (err) {
+        console.error('[superclaw]', err instanceof Error ? err.message : err);
         telegramOk = false;
       }
     }
@@ -170,24 +170,43 @@ server.tool(
 );
 
 // --- Cron Tools ---
+// Cron scheduler runs in sc-daemon process. Bridge reads/writes cron-jobs.json directly.
+
+interface CronJobEntry {
+  name: string;
+  schedule: string;
+  command: string;
+  requiresIdle: boolean;
+  enabled: boolean;
+  lastRun: string | null;
+  nextRun: string | null;
+}
+
+const CRON_JOBS_PATH = join(homedir(), 'superclaw', 'data', 'cron-jobs.json');
+
+function loadCronJobs(): CronJobEntry[] {
+  try {
+    if (existsSync(CRON_JOBS_PATH)) {
+      return JSON.parse(readFileSync(CRON_JOBS_PATH, 'utf-8'));
+    }
+  } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
+  return [];
+}
+
+function saveCronJobs(jobs: CronJobEntry[]): void {
+  writeFileSync(CRON_JOBS_PATH, JSON.stringify(jobs, null, 2));
+}
 
 server.tool(
   'sc_cron_list',
   'List all scheduled cron jobs',
   {},
   async () => {
-    const jobs = cronScheduler.listJobs();
+    const jobs = loadCronJobs();
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify(jobs.map((j) => ({
-          name: j.name,
-          schedule: j.schedule,
-          command: j.command,
-          enabled: j.enabled,
-          lastRun: j.lastRun ?? null,
-          nextRun: j.nextRun ?? null,
-        })), null, 2),
+        text: JSON.stringify(jobs, null, 2),
       }],
     };
   }
@@ -204,13 +223,14 @@ server.tool(
   },
   async ({ name, schedule, command, requiresIdle }) => {
     try {
-      const job = cronScheduler.addJob(name, schedule, command, requiresIdle);
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify(job, null, 2),
-        }],
-      };
+      const jobs = loadCronJobs();
+      if (jobs.some((j) => j.name === name)) {
+        return { content: [{ type: 'text', text: `Cron job "${name}" already exists.` }], isError: true };
+      }
+      const job = { name, schedule, command, requiresIdle: requiresIdle ?? false, enabled: true, lastRun: null, nextRun: null };
+      jobs.push(job);
+      saveCronJobs(jobs);
+      return { content: [{ type: 'text', text: `Cron job "${name}" added. Daemon will pick it up on next tick.\n${JSON.stringify(job, null, 2)}` }] };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: [{ type: 'text', text: `Failed to add cron job: ${msg}` }], isError: true };
@@ -225,11 +245,296 @@ server.tool(
     name: z.string().describe('Name of the cron job to remove'),
   },
   async ({ name }) => {
-    const removed = cronScheduler.removeJob(name);
-    if (removed) {
+    const jobs = loadCronJobs();
+    const idx = jobs.findIndex((j) => j.name === name);
+    if (idx >= 0) {
+      jobs.splice(idx, 1);
+      saveCronJobs(jobs);
       return { content: [{ type: 'text', text: `Cron job "${name}" removed.` }] };
     }
     return { content: [{ type: 'text', text: `Cron job "${name}" not found.` }], isError: true };
+  }
+);
+
+// --- OMO (Orchestrated Multi-Model Operations) Tools ---
+
+function hasCodexCLI(): boolean {
+  try {
+    execFileSync('codex', ['--version'], { stdio: 'pipe', timeout: 5000 });
+    return true;
+  } catch (err) {
+    console.error('[superclaw]', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+function hasGeminiCLI(): boolean {
+  try {
+    execFileSync('gemini', ['--version'], { stdio: 'pipe', timeout: 5000 });
+    return true;
+  } catch (err) {
+    console.error('[superclaw]', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+function buildSystemContext(): string {
+  const parts: string[] = [];
+  const claudeMdPath = join(process.cwd(), 'CLAUDE.md');
+  if (existsSync(claudeMdPath)) {
+    try {
+      const content = readFileSync(claudeMdPath, 'utf-8').slice(0, 2000);
+      parts.push('## Project Context (CLAUDE.md)\n' + content);
+    } catch (err) {
+      console.error('[superclaw]', err instanceof Error ? err.message : err);
+    }
+  }
+  parts.push('## Rules\nOnly modify files assigned to you. Report to PO if you need more files.');
+  return parts.join('\n\n');
+}
+
+function callCodex(prompt: string, sandbox: string = 'workspace-write', model?: string): string {
+  const systemCtx = buildSystemContext();
+  const fullPrompt = systemCtx + '\n\n---\n\n' + prompt;
+  const args = ['exec', '-s', sandbox];
+  if (model) args.push('-m', model);
+  args.push(fullPrompt);
+
+  const output = execFileSync('codex', args, {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: 300_000,
+    maxBuffer: 10 * 1024 * 1024,
+    env: { ...process.env },
+  });
+  return output.toString().trim();
+}
+
+function callGemini(prompt: string): string {
+  const systemCtx = buildSystemContext();
+  const fullPrompt = systemCtx + '\n\n---\n\n' + prompt;
+  const output = execFileSync('gemini', ['-p', fullPrompt, '-y'], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: 300_000,
+    maxBuffer: 10 * 1024 * 1024,
+    env: { ...process.env, GOOGLE_GENAI_USE_GCA: 'true' },
+  });
+  return output.toString().trim();
+}
+
+server.tool(
+  'sc_ask_codex',
+  'Send a prompt to OpenAI Codex agent (GPT) via codex exec CLI. Uses ChatGPT OAuth — no API key needed. Full coding agent with file R/W.',
+  {
+    prompt: z.string().describe('Task prompt for the Codex agent'),
+    sandbox: z.string().optional().default('workspace-write').describe('Sandbox mode: workspace-read, workspace-write, or full-auto'),
+    model: z.string().optional().describe('Model override (e.g., gpt-5.4). Defaults to codex default.'),
+  },
+  async ({ prompt, sandbox, model }) => {
+    if (!hasCodexCLI()) {
+      return { content: [{ type: 'text', text: 'codex CLI not installed. Install: npm i -g @openai/codex' }], isError: true };
+    }
+    try {
+      const result = callCodex(prompt, sandbox ?? 'workspace-write', model);
+      return { content: [{ type: 'text', text: result }] };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `codex exec failed: ${msg}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'sc_ask_gemini',
+  'Send a prompt to Google Gemini agent via gemini CLI. Uses Google OAuth — no API key needed. Full coding agent with file R/W.',
+  {
+    prompt: z.string().describe('Task prompt for the Gemini agent'),
+  },
+  async ({ prompt }) => {
+    if (!hasGeminiCLI()) {
+      return { content: [{ type: 'text', text: 'gemini CLI not installed. Install: npm i -g @google/gemini-cli' }], isError: true };
+    }
+    try {
+      const result = callGemini(prompt);
+      return { content: [{ type: 'text', text: result }] };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { content: [{ type: 'text', text: `gemini -p failed: ${msg}` }], isError: true };
+    }
+  }
+);
+
+const CATEGORY_ROUTING: Record<string, { provider: string; fallbackModel: string }> = {
+  ultrabrain: { provider: 'codex', fallbackModel: 'opus' },
+  deep: { provider: 'codex', fallbackModel: 'opus' },
+  'visual-engineering': { provider: 'gemini', fallbackModel: 'sonnet' },
+  artistry: { provider: 'gemini', fallbackModel: 'sonnet' },
+  writing: { provider: 'gemini', fallbackModel: 'haiku' },
+  quick: { provider: 'claude', fallbackModel: 'haiku' },
+  standard: { provider: 'claude', fallbackModel: 'sonnet' },
+};
+
+server.tool(
+  'sc_omo_dispatch',
+  'Auto-route a task to the best provider by category. Routes ultrabrain/deep→Codex, visual/artistry/writing→Gemini, quick/standard→Claude. Falls back to Claude if external CLI unavailable.',
+  {
+    category: z.string().describe('Task category: ultrabrain, deep, visual-engineering, artistry, writing, quick, standard'),
+    prompt: z.string().describe('Task prompt'),
+    codexModel: z.string().optional().describe('Codex model override (e.g., gpt-5.4)'),
+    codexSandbox: z.string().optional().default('workspace-write').describe('Codex sandbox mode'),
+  },
+  async ({ category, prompt, codexModel, codexSandbox }) => {
+    const route = CATEGORY_ROUTING[category];
+    if (!route) {
+      return { content: [{ type: 'text', text: `Unknown category "${category}". Use: ${Object.keys(CATEGORY_ROUTING).join(', ')}` }], isError: true };
+    }
+
+    // Try primary provider
+    if (route.provider === 'codex' && hasCodexCLI()) {
+      try {
+        const result = callCodex(prompt, codexSandbox ?? 'workspace-write', codexModel);
+        return { content: [{ type: 'text', text: `[OMO:codex] ${result}` }] };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: 'text', text: `[OMO:codex→fallback] Codex failed (${msg}). Use Claude ${route.fallbackModel} as fallback.` }], isError: true };
+      }
+    }
+
+    if (route.provider === 'gemini' && hasGeminiCLI()) {
+      try {
+        const result = callGemini(prompt);
+        return { content: [{ type: 'text', text: `[OMO:gemini] ${result}` }] };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: 'text', text: `[OMO:gemini→fallback] Gemini failed (${msg}). Use Claude ${route.fallbackModel} as fallback.` }], isError: true };
+      }
+    }
+
+    // Claude or fallback
+    return { content: [{ type: 'text', text: `[OMO:claude:${route.fallbackModel}] Route to Claude (${route.fallbackModel}). Provider "${route.provider}" CLI not available.` }] };
+  }
+);
+
+// --- Smart Interaction Router ---
+// Browser tasks → Playwright MCP (DOM-based, precise)
+// Desktop app tasks → Peekaboo screenshot + coordinate click
+
+const BROWSER_KEYWORDS = [
+  'browser', 'chrome', 'safari', 'firefox', 'edge', 'arc', 'brave',
+  'http', 'https', 'url', 'www', 'website', 'webpage', 'web page', 'web site',
+  'google', 'gmail', 'youtube', 'twitter', 'github', 'slack.com',
+  '검색', '웹', '브라우저', '크롬', '사파리', '로그인', '회원가입',
+  '탭', 'tab', 'bookmark', '즐겨찾기',
+];
+
+const DESKTOP_KEYWORDS = [
+  'finder', 'terminal', 'iterm', 'vscode', 'code', 'xcode',
+  'notes', 'messages', 'kakao', 'kakaotalk', 'discord',
+  'system preferences', 'settings', 'spotlight',
+  'dock', 'menu bar', 'notification',
+  '파인더', '터미널', '설정', '메모', '카카오', '독',
+];
+
+function classifyInteractionTarget(task: string): 'browser' | 'desktop' | 'unknown' {
+  const lower = task.toLowerCase();
+
+  // URL pattern is a strong browser signal
+  if (/https?:\/\/|www\./.test(lower)) return 'browser';
+
+  const browserScore = BROWSER_KEYWORDS.filter(k => lower.includes(k)).length;
+  const desktopScore = DESKTOP_KEYWORDS.filter(k => lower.includes(k)).length;
+
+  if (browserScore > desktopScore) return 'browser';
+  if (desktopScore > browserScore) return 'desktop';
+  if (browserScore > 0) return 'browser';
+  return 'unknown';
+}
+
+server.tool(
+  'sc_interact',
+  'Smart UI interaction router. Automatically picks the best method: Playwright (browser/web) or Peekaboo+coordinates (desktop apps). Call this FIRST before any UI automation to get the right approach.',
+  {
+    task: z.string().describe('What you want to do (e.g., "구글에서 Claude 검색", "Finder에서 파일 이동", "Settings에서 WiFi 끄기")'),
+    target: z.string().optional().describe('Explicit target: "browser", "desktop", or app name'),
+  },
+  async ({ task, target }) => {
+    let method: 'browser' | 'desktop' | 'unknown';
+
+    if (target) {
+      const t = target.toLowerCase();
+      if (['browser', 'web', 'chrome', 'safari', 'firefox', 'arc', 'brave', 'edge'].includes(t)) {
+        method = 'browser';
+      } else if (t === 'desktop' || DESKTOP_KEYWORDS.some(k => t.includes(k))) {
+        method = 'desktop';
+      } else {
+        method = classifyInteractionTarget(task + ' ' + target);
+      }
+    } else {
+      method = classifyInteractionTarget(task);
+    }
+
+    if (method === 'browser') {
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            '[ROUTE:playwright] Use Playwright MCP tools for this browser task.',
+            '',
+            'Steps:',
+            '1. mcp__playwright__browser_navigate(url) — go to page',
+            '2. mcp__playwright__browser_snapshot() — get DOM accessibility tree with ref IDs',
+            '3. mcp__playwright__browser_click(ref="<id>") — click element by ref',
+            '4. mcp__playwright__browser_fill_form(fields=[...]) — fill inputs by ref',
+            '5. mcp__playwright__browser_type(ref, text) — type into element',
+            '',
+            'NEVER use osascript/AppleScript/coordinate clicking for browser tasks.',
+            'NEVER use sc_click/sc_screenshot for web pages.',
+            'Playwright refs come from browser_snapshot — use those.',
+            '',
+            `Task: ${task}`,
+          ].join('\n'),
+        }],
+      };
+    }
+
+    if (method === 'desktop') {
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            '[ROUTE:peekaboo] Use Peekaboo MCP tools for this desktop app task.',
+            '',
+            'Steps:',
+            '1. sc_screenshot(window="<app>") — capture the app window',
+            '2. sc_see(app="<app>") — get UI elements with IDs and coordinates',
+            '3. sc_click(element="<id>") or sc_click(x=N, y=N) — click element',
+            '4. sc_type(text="...") — type text at cursor',
+            '5. sc_hotkey(keys="cmd+c") — keyboard shortcut',
+            '',
+            'For precise element targeting, prefer sc_see + element ID over raw coordinates.',
+            'If sc_see fails, use sc_screenshot + visual analysis + sc_click(x,y).',
+            '',
+            `Task: ${task}`,
+          ].join('\n'),
+        }],
+      };
+    }
+
+    // Unknown — provide both options
+    return {
+      content: [{
+        type: 'text',
+        text: [
+          '[ROUTE:auto] Could not determine target type. Choose based on context:',
+          '',
+          'If browser/web → use Playwright: browser_navigate, browser_snapshot, browser_click(ref)',
+          'If desktop app → use Peekaboo: sc_screenshot, sc_see, sc_click, sc_type',
+          '',
+          'RULE: NEVER use osascript to control browsers. Use Playwright instead.',
+          '',
+          `Task: ${task}`,
+        ].join('\n'),
+      }],
+    };
   }
 );
 
@@ -240,13 +545,12 @@ async function main() {
 
   // NOTE: Telegram polling is handled by sc-daemon, NOT here.
   // The MCP bridge only exposes send/inbox/status tools — it does NOT poll.
-
-  // Start cron scheduler
-  cronScheduler.start();
+  // NOTE: Cron scheduling is handled by sc-daemon only — NOT here.
+  // Running it in both caused race conditions where multiple instances
+  // overwrote each other's lastRun timestamps in cron-jobs.json.
 
   // Graceful shutdown when parent (Claude Code) disconnects
   process.stdin.on('end', () => {
-    cronScheduler.stop();
     process.exit(0);
   });
   process.stdin.resume();

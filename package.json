@@ -1,13 +1,17 @@
 {
   "name": "superclaw",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "description": "Claude Code AI plugin — Telegram remote control, heartbeat, persistent memory, self-improving skills, composable pipelines, full Mac agentic control",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:watch": "node scripts/build.mjs --watch",
+    "clean-sessions": "node scripts/cleanup-stale-sessions.mjs",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.e2e.ts",
+    "test:all": "vitest run && vitest run --config vitest.e2e.ts",
     "setup": "node scripts/setup.mjs",
     "typecheck": "tsc --noEmit",
     "daemon": "node bridge/sc-daemon.cjs",
@@ -15,6 +19,7 @@
     "daemon:stop": "node scripts/daemon.mjs stop",
     "daemon:status": "node scripts/daemon.mjs status",
     "qa": "bash scripts/qa-full-test.sh",
+    "sync": "bash scripts/sync-cache.sh",
     "daemon:install": "node scripts/daemon.mjs install",
     "daemon:uninstall": "node scripts/daemon.mjs uninstall"
   },
@@ -37,6 +42,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"

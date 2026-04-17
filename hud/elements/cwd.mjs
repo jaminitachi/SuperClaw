@@ -8,6 +8,7 @@ export function renderCwd(cwd, format = 'relative') {
   let display;
 
   switch (format) {
+    case 'basename':
     case 'folder':
       display = cwd.split('/').pop() || cwd;
       break;

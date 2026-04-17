@@ -137,9 +137,6 @@ Developers waste 30-60 minutes daily checking multiple tools for status updates.
 - `sc_send_message` -- Send critical alerts to Telegram
 - `sc_memory_store` -- Log report data for trend tracking
 - `sc_memory_search` -- Query historical reports for trend analysis
-- `sc_memory_add_entity` -- Create report entities in knowledge graph
-- `sc_memory_add_relation` -- Link reports to deployments, errors, PRs
-- `sc_memory_graph_query` -- Query deployment history and error trends
 - `Read` -- Load configuration files, build outputs, test results
 - `Write` -- Save generated reports to ~/superclaw/data/reports/
 - `Grep` -- Search logs and outputs for specific error patterns
@@ -301,18 +298,17 @@ sc_cron_add(
 
 Track deployment history:
 ```
-sc_memory_add_entity(
-  name="deploy-v1.2.3",
-  type="deployment",
-  properties={version: "1.2.3", timestamp: "...", commit: "abc123", environment: "production"}
+sc_memory_store(
+  category="deployment",
+  subject="deploy-v1.2.3 production",
+  content="Version 1.2.3 deployed to production. Commit: abc123. Includes PR #42, PR #38.",
+  confidence=1.0
 )
-sc_memory_add_relation(from="deploy-v1.2.3", to="pr-42", type="includes")
-sc_memory_add_relation(from="deploy-v1.2.3", to="pr-38", type="includes")
 ```
 
 Query: "what PRs were in the last production deploy?"
 ```
-sc_memory_graph_query(query="deployment production latest includes")
+sc_memory_search(query="deployment production", category="deployment")
 ```
 
 ## Troubleshooting

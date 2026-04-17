@@ -9,7 +9,8 @@ export interface GithubMetrics {
 function tryExec(cmd: string, timeoutMs = 10000): string | null {
   try {
     return execSync(cmd, { encoding: 'utf-8', timeout: timeoutMs, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-  } catch {
+  } catch (err) {
+    console.error('[superclaw]', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -31,7 +32,7 @@ export async function collect(repo?: string): Promise<GithubMetrics> {
       if (me) {
         metrics.prs.mine = prs.filter((p: any) => p.author?.login === me).length;
       }
-    } catch {}
+    } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
   }
 
   // Review requested
@@ -39,7 +40,7 @@ export async function collect(repo?: string): Promise<GithubMetrics> {
   if (reviewPrs) {
     try {
       metrics.prs.reviewRequested = JSON.parse(reviewPrs).length;
-    } catch {}
+    } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
   }
 
   // Issues
@@ -48,14 +49,14 @@ export async function collect(repo?: string): Promise<GithubMetrics> {
     try {
       const issues = JSON.parse(issueList);
       metrics.issues.assigned = issues.length;
-    } catch {}
+    } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
   }
 
   const allIssues = tryExec(`gh issue list ${repoFlag} --state open --json number --limit 100`);
   if (allIssues) {
     try {
       metrics.issues.total = JSON.parse(allIssues).length;
-    } catch {}
+    } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
   }
 
   // CI status for current branch
@@ -70,7 +71,7 @@ export async function collect(repo?: string): Promise<GithubMetrics> {
           url: runs[0].url,
         };
       }
-    } catch {}
+    } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
   }
 
   return metrics;

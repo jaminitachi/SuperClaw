@@ -6,10 +6,13 @@ Claude Code plugin for agentic Mac automation, persistent memory, Telegram remot
 
 SuperClaw turns Claude Code into a full autonomous workstation. One request auto-composes the right team of agents, executes in parallel, and verifies results independently.
 
-- **41 MCP tools** across 3 servers (bridge, peekaboo, memory)
-- **29 specialized agents** with 3-tier model routing (haiku / sonnet / opus)
-- **15 skills** with keyword auto-detection (Korean + English)
-- **9 lifecycle hooks** for context injection, tool enforcement, and session persistence
+- **36 MCP tools** across 3 servers (bridge, peekaboo, memory)
+- **10 team agents** with 3-tier model routing (haiku / sonnet / opus)
+- **9 skills** with keyword auto-detection (Korean + English)
+- **7 lifecycle hooks** for context injection, tool enforcement, and session persistence
+
+
+
 - **Smart team routing** — complex requests auto-compose multi-agent teams
 - **Sisyphus pattern** — blocks session exit until autonomous tasks complete
 - **Obsidian sync** — exports memory to interconnected markdown with `[[wikilinks]]`
@@ -51,15 +54,16 @@ The setup wizard handles everything:
                          │  └────────────────────────────┘  │
                          │                                  │
                          │  ┌────────────────────────────┐  │
-                         │  │     29 Specialist Agents    │  │
-                         │  │  Orchestration: prometheus, │  │
-                         │  │    metis, momus, atlas      │  │
-                         │  │  Dev: architect, debugger,  │  │
-                         │  │    reviewer, test-engineer  │  │
-                         │  │  Research: paper-reader,    │  │
-                         │  │    lit-reviewer, data-analyst│  │
-                         │  │  Infra: mac-control, cron,  │  │
-                         │  │    pipeline, memory-curator │  │
+                         │  │      10 Team Agents         │  │
+                         │  │  Dev: dev-architect,        │  │
+                         │  │    dev-backend, dev-frontend,│  │
+                         │  │    dev-qa                   │  │
+                         │  │  Research: research-reviewer,│  │
+                         │  │    research-writer,          │  │
+                         │  │    research-assistant        │  │
+                         │  │  Infra: infra-monitor,      │  │
+                         │  │    infra-mac                 │  │
+                         │  │  Verify: verify             │  │
                          │  └────────────────────────────┘  │
                          └──────────┬───────────────────────┘
                                     │ MCP (stdio)
@@ -67,11 +71,11 @@ The setup wizard handles everything:
                     │               │               │
              ┌──────┴──────┐ ┌─────┴──────┐ ┌──────┴──────┐
              │  sc-bridge  │ │ sc-peekaboo│ │  sc-memory  │
-             │  8 tools    │ │  15 tools  │ │  18 tools   │
+             │  8 tools    │ │  15 tools  │ │  13 tools   │
              │             │ │            │ │             │
              │ Telegram    │ │ Screenshot │ │ SQLite+FTS5 │
-             │ Cron sched. │ │ UI inspect │ │ Knowledge   │
-             │ Status      │ │ Click/type │ │  graph      │
+             │ Cron sched. │ │ UI inspect │ │ Persistent  │
+             │ Status      │ │ Click/type │ │  memory     │
              │ Routing     │ │ App mgmt   │ │ Obsidian    │
              └──────┬──────┘ │ AppleScript│ │  sync       │
                     │        │ OCR        │ │ Learnings   │
@@ -90,15 +94,15 @@ User: "이 버그 고쳐줘" (Fix this bug)
 
 1. UserPromptSubmit hook detects "고쳐" + "버그" → Debug Team
 2. Team composition injected:
-   - sc-debugger (sonnet): Root cause analysis
-   - sc-architect (opus): Architecture context
-   - sc-test-engineer (sonnet): Reproduce & verify
+   - dev-backend (sonnet): Root cause analysis
+   - dev-architect (opus): Architecture context
+   - dev-qa (sonnet): Reproduce & verify
 3. Agents execute in parallel
 4. Stop hook blocks exit until work complete (Sisyphus)
 5. Results verified independently before reporting
 ```
 
-## MCP Tools (41)
+## MCP Tools (36)
 
 ### sc-bridge (8 tools)
 | Tool | Description |
@@ -131,19 +135,14 @@ User: "이 버그 고쳐줘" (Fix this bug)
 | `sc_osascript` | Execute AppleScript/JXA |
 | `sc_notify` | Send macOS notification |
 
-### sc-memory (18 tools)
+### sc-memory (13 tools)
 | Tool | Description |
 |------|-------------|
 | `sc_memory_store` | Store knowledge with category/confidence |
 | `sc_memory_search` | FTS5 full-text search (progressive disclosure) |
 | `sc_memory_recall` | Recall by ID or category |
 | `sc_memory_delete` | Delete from any table |
-| `sc_memory_graph_query` | Query entity relationships |
-| `sc_memory_add_entity` | Add/update knowledge graph entity |
-| `sc_memory_add_relation` | Create entity relationship |
-| `sc_memory_log_conversation` | Log conversation for history |
 | `sc_memory_stats` | Database statistics |
-| `sc_memory_session_history` | Past session listing |
 | `sc_learning_store` | Store learning (7 categories) |
 | `sc_learning_recall` | Recall learnings by filter |
 | `sc_learning_summary` | Category-grouped summary |
@@ -153,56 +152,37 @@ User: "이 버그 고쳐줘" (Fix this bug)
 | `sc_notepad_read` | Read scratchpad memos |
 | `sc_notepad_clear` | Clear scratchpad entries |
 
-## Agents (29)
+## Agents (10 Team-Based)
 
-### Orchestration
+v4 consolidates 29 individual agents into 10 focused team roles.
+
+### DEV Team
 | Agent | Model | Role |
 |-------|-------|------|
-| `sc-prometheus` | opus | Strategic planning, requirements discovery |
-| `sc-metis` | opus | Gap analysis, catches hidden assumptions |
-| `sc-momus` | sonnet | Plan validation and critique |
-| `sc-atlas` | opus | Execution orchestration, worker coordination |
-| `sc-junior` | sonnet | Task execution, atomic operations |
+| `dev-architect` | opus | Architecture, planning, code review, security, performance |
+| `dev-backend` | sonnet | Backend implementation, debugging |
+| `dev-frontend` | sonnet | Frontend/UI implementation |
+| `dev-qa` | sonnet | TDD, unit/integration/e2e testing |
 
-### Development
+### RESEARCH Team
 | Agent | Model | Role |
 |-------|-------|------|
-| `sc-architect` | opus | Architecture analysis and design |
-| `sc-code-reviewer` | opus | Code review with issue tracking |
-| `sc-security-reviewer` | opus | OWASP vulnerability detection |
-| `sc-debugger` | sonnet | Root cause analysis, bug patterns |
-| `sc-debugger-high` | opus | Concurrency, cross-system bugs |
-| `sc-test-engineer` | sonnet | Test strategy, coverage tracking |
-| `sc-performance` | sonnet | Hotspot identification, benchmarks |
-| `sc-performance-high` | opus | GPU, distributed system profiling |
-| `sc-frontend` | sonnet | UI/UX for data dashboards |
+| `research-reviewer` | opus | Paper analysis, literature synthesis, data analysis |
+| `research-writer` | opus | Academic writing, ideation |
+| `research-assistant` | haiku | Citations, BibTeX, quick lookups |
 
-### Research
+### INFRA Team
 | Agent | Model | Role |
 |-------|-------|------|
-| `paper-reader` | sonnet | Paper extraction and analysis |
-| `literature-reviewer` | opus | Multi-paper synthesis |
-| `experiment-tracker` | sonnet | Experiment logging |
-| `research-assistant` | haiku | Citations, BibTeX |
-| `research-code-reviewer` | opus | Reproducibility review |
-| `data-analyst` | sonnet | Metrics and visualization |
+| `infra-monitor` | haiku | System monitoring, heartbeat, cron, pipelines |
+| `infra-mac` | sonnet | macOS UI automation via Peekaboo |
 
-### Infrastructure
+### VERIFY Team
 | Agent | Model | Role |
 |-------|-------|------|
-| `mac-control` | sonnet | macOS UI automation |
-| `memory-curator` | sonnet | Knowledge graph curation |
-| `gateway-debugger` | sonnet | Telegram diagnostics |
-| `system-monitor` | haiku | System health checks |
-| `heartbeat-mgr` | haiku | Monitoring configuration |
-| `cron-mgr` | haiku | Scheduled task management |
-| `pipeline-builder` | sonnet | Workflow automation |
-| `workflow-monitor` | haiku | Pipeline execution tracking |
-| `skill-forger` | sonnet | Auto-generate new skills |
-| `setup-validator` | haiku | Installation verification |
-| `sc-verifier` | sonnet | Operations verification |
+| `verify` | sonnet | Independent operations verification |
 
-## Skills (15)
+## Skills (9)
 
 | Skill | Trigger Keywords | Description |
 |-------|-----------------|-------------|
@@ -210,36 +190,30 @@ User: "이 버그 고쳐줘" (Fix this bug)
 | `mac-control` | "screenshot", "click on", "앱 열어" | Mac UI automation |
 | `memory-mgr` | "remember this", "기억해" | Persistent knowledge |
 | `heartbeat` | "system health", "상태 확인" | Proactive monitoring |
-| `automation-pipeline` | "pipeline", "자동화" | Composable workflows |
 | `cron-mgr` | "schedule", "매일" | Cron job management |
 | `setup` | "setup superclaw", "설정" | Installation wizard |
-| `skill-forge` | "create skill", "스킬 만들" | Auto-generate skills |
-| `paper-review` | "read paper", "논문" | Paper analysis |
-| `experiment-log` | "log experiment", "실험" | Experiment tracking |
 | `lit-review` | "literature review", "문헌 조사" | Multi-paper synthesis |
-| `research-analysis` | "analyze data", "통계" | Statistical analysis |
 | `dev-workflow` | "check PRs", "PR 확인" | Developer productivity |
-| `tts` | n/a | Text-to-speech generation |
-| `ultrawork` | "ulw", "다 해줘" | Autonomous execution loop |
+| `ultrawork` | "ulw", "다 해줘" | PO-driven team orchestration |
 
-## Smart Team Routing (v3)
+## Smart Team Routing (v4)
 
 Complex requests auto-compose multi-agent teams:
 
 | Request Pattern | Team | Agents |
 |----------------|------|--------|
-| "앱 만들어" / "build a service" | Dev Team | architect + junior + test-engineer + code-reviewer |
-| "논문 조사해" / "research papers" | Research Team | paper-reader + lit-reviewer + research-assistant + data-analyst |
-| "리팩토링해" / "refactor this" | Refactor Team | architect + junior + test-engineer |
-| "버그 고쳐" / "fix this bug" | Debug Team | debugger + architect + test-engineer |
-| "배포해" / "deploy to production" | Deploy Team | security-reviewer + code-reviewer + test-engineer |
+| "앱 만들어" / "build a service" | Dev Team | dev-architect + dev-backend + dev-frontend + dev-qa |
+| "논문 조사해" / "research papers" | Research Team | research-reviewer + research-writer + research-assistant |
+| "버그 고쳐" / "fix this bug" | Dev Team | dev-backend + dev-architect + dev-qa |
+| "시스템 점검" / "check system" | Infra Team | infra-monitor + infra-mac |
+| "검증해" / "verify this" | Verify Team | verify + dev-qa |
 
 **Ecomode**: Automatic model tier selection based on task complexity.
 - Simple lookups → haiku ($)
 - Standard implementation → sonnet ($$)
 - Architecture/security → opus ($$$)
 
-## Hooks (9)
+## Hooks (7)
 
 | Hook | Event | Purpose |
 |------|-------|---------|
@@ -248,7 +222,6 @@ Complex requests auto-compose multi-agent teams:
 | `session-end` | SessionEnd | Extract learnings, Obsidian sync, session summary |
 | `sc-pre-tool` | PreToolUse | Model suggestions, tool reminders |
 | `sc-post-tool` | PostToolUse | Failure detection, circuit breaker, ultrawork verification |
-| `sc-subagent-tracker` | SubagentStart/Stop | Track agent lifecycle |
 | `sc-persistent` | Stop | Sisyphus — block exit when autonomous tasks active |
 | `pre-compact` | PreCompact | Save context before compression |
 
@@ -281,12 +254,10 @@ Phase 3: Report → evidence-based completion report
 
 ## Persistent Memory
 
-SQLite database with FTS5 full-text search and knowledge graph.
+SQLite database with FTS5 full-text search.
 
 ### Tables
 - **knowledge** — Categorized facts with confidence scores
-- **entities** — Knowledge graph nodes (projects, technologies, people)
-- **relations** — Entity relationships (uses, depends-on, created-by)
 - **learnings** — Accumulated insights across sessions (7 categories)
 - **conversations** — Cross-session conversation history
 - **verification_log** — Claimed vs verified results
@@ -401,14 +372,12 @@ superclaw/
 │   ├── daemon/             # Background daemon (gateway, ACP bridge)
 │   ├── heartbeat/          # 7 health collectors + alerting
 │   ├── mac-control/        # Peekaboo + AppleScript wrappers
-│   ├── memory/             # DB, knowledge graph, Obsidian export
-│   ├── pipelines/          # Pipeline engine + 3 presets
-│   ├── skills/             # Skill evaluator, generator, installer
+│   ├── memory/             # DB, Obsidian export
 │   └── config/             # Zod schema + defaults
-├── agents/                 # 29 agent definitions (.md)
-├── skills/                 # 15 skill definitions (SKILL.md)
-├── commands/               # 4 slash commands (.md)
-├── hooks/                  # hooks.json (9 lifecycle hooks)
+├── agents/                 # 10 agent definitions (.md)
+├── skills/                 # 9 skill definitions (SKILL.md)
+├── commands/               # 5 slash commands (.md)
+├── hooks/                  # hooks.json (7 lifecycle hooks)
 ├── scripts/                # Hook scripts (.mjs) + build + QA
 ├── hud/                    # 14-element status line
 ├── bridge/                 # Built CJS bundles (3 MCP servers)
@@ -442,7 +411,7 @@ lsof ~/superclaw/data/memory.db
 cat ~/superclaw/data/logs/hooks.log | tail -20
 ```
 
-## Changelog (v2 → v3)
+## Changelog (v2 → v3 → v4)
 
 ### New Features
 - **Smart Team Routing** — keyword detection auto-composes multi-agent teams (dev/research/debug/refactor/deploy)
@@ -469,9 +438,9 @@ cat ~/superclaw/data/logs/hooks.log | tail -20
 
 ### Breaking Changes
 - Config file moved to `~/superclaw/superclaw.json` (was inline)
-- MCP tools renamed: `sc_` prefix standardized across all 41 tools
-- Agent count reduced from 39 to 29 (consolidated redundant agents)
-- Hooks system rewritten (9 hooks, all use `${CLAUDE_PLUGIN_ROOT}` paths)
+- MCP tools renamed: `sc_` prefix standardized across all 36 tools
+- Agent count reduced from 39 → 29 → 10 (consolidated into focused team roles)
+- Hooks system: 7 hooks with keyword detection, tool enforcement, and session persistence
 
 ## License
 
@@ -479,4 +448,4 @@ MIT
 
 ## Version
 
-3.0.0
+4.0.0

@@ -9,15 +9,18 @@
  *   npm run daemon:start               # background (via scripts/daemon.mjs)
  */
 
-import { spawn as spawnChild } from 'child_process';
-import { readFileSync, existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
+import { spawn as spawnChild, execFileSync } from 'child_process';
+import { existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { CronScheduler } from '../cron/scheduler.js';
+import { loadConfig } from '../config/loader.js';
+import { loadRatchetState, saveRatchetState, ratchetCommit, ratchetReset, appendChangelog, shouldEscalate, type RatchetState } from './ratchet.js';
+import { saveCheckpoint, loadCheckpoint, buildResumePrompt } from './handoff.js';
+import { TranscriptWatcher } from './transcript-watcher.js';
 
 // ─── Paths ────────────────────────────────────────────────────
 const SUPERCLAW_ROOT = join(homedir(), 'superclaw');
-const CONFIG_PATH = join(SUPERCLAW_ROOT, 'superclaw.json');
 const LOG_DIR = join(SUPERCLAW_ROOT, 'data', 'logs');
 const PID_FILE = join(SUPERCLAW_ROOT, 'data', 'daemon.pid');
 const TELEGRAM_BASE = 'https://api.telegram.org/bot';
@@ -30,12 +33,6 @@ const TELEGRAM_MSG_LIMIT = 4000; // leave room below 4096
 const MAX_TURNS = 15;
 
 // ─── Types ────────────────────────────────────────────────────
-interface DaemonConfig {
-  botToken: string;
-  defaultChatId: string;
-  allowFrom: string[];
-}
-
 interface TelegramUpdate {
   update_id: number;
   message?: {
@@ -55,6 +52,7 @@ interface TelegramResponse {
 // ─── State ────────────────────────────────────────────────────
 let running = true;
 let cronScheduler: CronScheduler | null = null;
+let transcriptWatcher: TranscriptWatcher | null = null;
 let offset = 0;
 let backoffMs = 1000;
 let startedAt = Date.now();
@@ -74,31 +72,24 @@ function log(level: string, msg: string): void {
 }
 
 // ─── Config ───────────────────────────────────────────────────
-function loadConfig(): DaemonConfig {
-  if (!existsSync(CONFIG_PATH)) {
-    log('FATAL', `Config not found: ${CONFIG_PATH}`);
-    log('FATAL', 'Run "npm run setup" to configure SuperClaw first.');
-    process.exit(1);
-  }
+interface DaemonTelegramConfig {
+  botToken: string;
+  defaultChatId: string;
+  allowFrom: string[];
+}
 
-  let raw: Record<string, unknown>;
-  try {
-    raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')) as Record<string, unknown>;
-  } catch (err) {
-    log('FATAL', `Failed to parse config: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
-  }
+function loadDaemonConfig(): DaemonTelegramConfig {
+  const cfg = loadConfig(SUPERCLAW_ROOT);
 
-  const tg = raw.telegram as Record<string, unknown> | undefined;
-  if (!tg || !tg.botToken) {
-    log('FATAL', 'telegram.botToken not set in superclaw.json');
+  if (!cfg.telegram.botToken) {
+    log('FATAL', 'telegram.botToken not set in superclaw.json (or SC_TELEGRAM_TOKEN env)');
     process.exit(1);
   }
 
   return {
-    botToken: tg.botToken as string,
-    defaultChatId: (tg.defaultChatId as string) ?? '',
-    allowFrom: (tg.allowFrom as string[]) ?? [],
+    botToken: cfg.telegram.botToken,
+    defaultChatId: cfg.telegram.defaultChatId ?? '',
+    allowFrom: cfg.telegram.allowFrom ?? [],
   };
 }
 
@@ -282,6 +273,10 @@ function runClaude(message: string, chatId: number): Promise<ClaudeResult> {
     delete cleanEnv.CLAUDE_CODE_SESSION;
     delete cleanEnv.CLAUDE_CODE_ENTRY_POINT;
     cleanEnv.SUPERCLAW_DAEMON = '1';
+    for (const key of Object.keys(cleanEnv)) {
+      if (key.startsWith('CMUX_')) delete cleanEnv[key];
+    }
+    cleanEnv.CMUX_CLAUDE_HOOKS_DISABLED = '1';
 
     const child = spawnChild('claude', args, {
       env: cleanEnv,
@@ -359,13 +354,13 @@ function runClaude(message: string, chatId: number): Promise<ClaudeResult> {
 }
 
 // ─── Message Queue ────────────────────────────────────────────
-async function enqueueMessage(config: DaemonConfig, chatId: number, text: string): Promise<void> {
+async function enqueueMessage(config: DaemonTelegramConfig, chatId: number, text: string): Promise<void> {
   messageQueue.push({ chatId, text });
   pendingCount = messageQueue.length;
   await processQueue(config);
 }
 
-async function processQueue(config: DaemonConfig): Promise<void> {
+async function processQueue(config: DaemonTelegramConfig): Promise<void> {
   if (processing) return;
   processing = true;
 
@@ -406,6 +401,7 @@ function setupShutdown(): void {
     log('INFO', `Received ${signal} — shutting down`);
     running = false;
     cronScheduler?.stop();
+    transcriptWatcher?.stop();
 
     // Wait briefly for current work, then clean up
     setTimeout(() => {
@@ -419,9 +415,152 @@ function setupShutdown(): void {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
+// ─── Autonomous Ratchet Loop ─────────────────────────────────
+async function runAutonomousTask(taskPrompt: string, projectDir: string): Promise<void> {
+  const config = loadConfig();
+
+  // Resume from existing checkpoint if available
+  const checkpoint = loadCheckpoint();
+  let prompt = checkpoint
+    ? buildResumePrompt(checkpoint) + '\n\n' + taskPrompt
+    : taskPrompt;
+
+  let state: RatchetState = loadRatchetState() || {
+    taskId: `task-${Date.now()}`,
+    iteration: 0,
+    consecutiveFailures: 0,
+    status: 'running',
+    lastCheckpoint: new Date().toISOString(),
+  };
+
+  const MAX_ITERATIONS = 20;
+
+  while (state.status === 'running' && state.iteration < MAX_ITERATIONS) {
+    state.iteration++;
+    log('INFO', `[ratchet] Iteration ${state.iteration}/${MAX_ITERATIONS}`);
+
+    try {
+      // Spawn claude -p session
+      const args = [
+        '-p', prompt,
+        '--plugin-dir', SUPERCLAW_ROOT,
+        '--output-format', 'json',
+        '--max-turns', '30',
+        '--permission-mode', 'bypassPermissions',
+      ];
+
+      if (projectDir) {
+        args.push('--cwd', projectDir);
+      }
+
+      const taskEnv: Record<string, string | undefined> = { ...process.env };
+      delete taskEnv.CLAUDECODE;
+      delete taskEnv.CLAUDE_CODE;
+      delete taskEnv.CLAUDE_CODE_RUNNING;
+      delete taskEnv.CLAUDE_CODE_SESSION;
+      delete taskEnv.CLAUDE_CODE_ENTRY_POINT;
+      for (const key of Object.keys(taskEnv)) {
+        if (key.startsWith('CMUX_')) delete taskEnv[key];
+      }
+      taskEnv.SUPERCLAW_DAEMON = '1';
+      taskEnv.CMUX_CLAUDE_HOOKS_DISABLED = '1';
+
+      const output = execFileSync('claude', args, {
+        timeout: 600_000, // 10 minutes
+        maxBuffer: 10 * 1024 * 1024,
+        env: taskEnv,
+        input: '',
+      });
+
+      const result = output.toString('utf-8');
+
+      // Success: test pass or DONE status
+      if (result.includes('"status":"completed"') || result.includes('DONE')) {
+        // Success -> git commit
+        const committed = ratchetCommit(projectDir, `[ratchet] iteration ${state.iteration}: success`);
+        if (committed) {
+          appendChangelog(projectDir, `Iteration ${state.iteration}: SUCCESS\n${result.slice(0, 200)}`);
+        }
+        state.consecutiveFailures = 0;
+        state.lastCheckpoint = new Date().toISOString();
+
+        // Save checkpoint
+        saveCheckpoint({
+          taskDescription: taskPrompt.slice(0, 200),
+          completedSteps: [`iteration-${state.iteration}`],
+          pendingSteps: [],
+          failedApproaches: [],
+          currentBranch: 'main',
+          lastCommitHash: 'HEAD',
+          timestamp: new Date().toISOString(),
+        });
+
+        // Next iteration uses result-based prompt
+        prompt = `Previous iteration succeeded. Continue with remaining tasks.\n\n${taskPrompt}`;
+
+      } else {
+        // Failure -> git reset
+        state.consecutiveFailures++;
+        ratchetReset(projectDir);
+        appendChangelog(projectDir, `Iteration ${state.iteration}: FAILED\n${result.slice(0, 200)}`);
+
+        prompt = `Previous iteration failed. Error: ${result.slice(0, 500)}\nTry a different approach.\n\n${taskPrompt}`;
+      }
+
+    } catch (err) {
+      // Timeout or crash
+      state.consecutiveFailures++;
+      log('ERROR', `[ratchet] Iteration ${state.iteration} crashed: ${err}`);
+      appendChangelog(projectDir, `Iteration ${state.iteration}: CRASH\n${err}`);
+    }
+
+    // 3 consecutive failures -> Telegram alert + stop
+    if (shouldEscalate(state)) {
+      state.status = 'escalated';
+      log('WARN', '[ratchet] 3 consecutive failures — escalating to user');
+
+      // Telegram notification
+      if (config.telegram.botToken && config.telegram.defaultChatId) {
+        try {
+          const msg = `[SuperClaw Ratchet] 3연속 실패로 중단됨.\nTask: ${taskPrompt.slice(0, 100)}\nIteration: ${state.iteration}`;
+          await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: config.telegram.defaultChatId, text: msg }),
+          });
+        } catch { /* best effort */ }
+      }
+      break;
+    }
+
+    saveRatchetState(state);
+  }
+
+  // Complete
+  if (state.iteration >= MAX_ITERATIONS) {
+    state.status = 'complete';
+    log('INFO', `[ratchet] Max iterations reached (${MAX_ITERATIONS})`);
+  }
+
+  saveRatchetState(state);
+  log('INFO', `[ratchet] Finished. Status: ${state.status}, iterations: ${state.iteration}`);
+}
+
 // ─── Main Loop ────────────────────────────────────────────────
 async function main(): Promise<void> {
-  const config = loadConfig();
+  // Check for autonomous mode CLI arguments
+  const autonomousTask = process.argv.find(a => a.startsWith('--task='));
+  const autonomousDir = process.argv.find(a => a.startsWith('--project='));
+
+  if (autonomousTask) {
+    const task = autonomousTask.split('=').slice(1).join('=');
+    const dir = autonomousDir ? autonomousDir.split('=').slice(1).join('=') : process.cwd();
+    await runAutonomousTask(task, dir);
+    process.exit(0);
+  }
+
+  // Existing Telegram + cron logic continues below
+  const config = loadDaemonConfig();
 
   mkdirSync(LOG_DIR, { recursive: true });
   writePidFile();
@@ -430,6 +569,34 @@ async function main(): Promise<void> {
   // Start cron scheduler — runs independently of Claude Code sessions
   cronScheduler = new CronScheduler(join(SUPERCLAW_ROOT, 'data'));
   cronScheduler.start();
+
+  // Start transcript watcher — extracts learnings from finished Claude Code sessions
+  // out-of-band from Claude Code's lifecycle (B2 architecture).
+  try {
+    const fullCfg = loadConfig(SUPERCLAW_ROOT);
+    transcriptWatcher = new TranscriptWatcher(
+      {
+        enabled: fullCfg.watcher.enabled,
+        idleMinutes: fullCfg.watcher.idleMinutes,
+        pollIntervalSeconds: fullCfg.watcher.pollIntervalSeconds,
+        maxRetries: fullCfg.watcher.maxRetries,
+        batchSize: fullCfg.watcher.batchSize,
+        extractionTimeoutMs: fullCfg.watcher.extractionTimeoutMs,
+      },
+      (level, msg) => log(level, msg)
+    );
+    transcriptWatcher.start();
+  } catch (err) {
+    log('ERROR', `transcript watcher init failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Sync pmset wake schedule from launchd plist times
+  try {
+    const syncScript = join(SUPERCLAW_ROOT, 'scripts', 'sc-sync-pmset.sh');
+    if (existsSync(syncScript)) {
+      spawn('/bin/bash', [syncScript], { detached: true, stdio: 'ignore' }).unref();
+    }
+  } catch {}
 
   log('INFO', `SuperClaw daemon started (PID ${process.pid})`);
   log('INFO', `Config: allowFrom=[${config.allowFrom.join(',')}], defaultChatId=${config.defaultChatId}`);
@@ -481,6 +648,10 @@ async function main(): Promise<void> {
             delete cleanEnv.CLAUDE_CODE_SESSION;
             delete cleanEnv.CLAUDE_CODE_ENTRY_POINT;
             // Do NOT set SUPERCLAW_DAEMON — this allows SessionEnd hook to run
+            for (const key of Object.keys(cleanEnv)) {
+              if (key.startsWith('CMUX_')) delete cleanEnv[key];
+            }
+            cleanEnv.CMUX_CLAUDE_HOOKS_DISABLED = '1';
 
             await new Promise<void>((resolve) => {
               const child = spawnChild('claude', finalArgs, {

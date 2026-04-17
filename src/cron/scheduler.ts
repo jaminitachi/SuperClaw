@@ -15,7 +15,7 @@ async function getUserIdleSeconds(): Promise<number> {
     });
     const match = stdout.match(/"HIDIdleTime"\s*=\s*(\d+)/);
     if (match) return Number(match[1]) / 1_000_000_000;
-  } catch { /* fall through */ }
+  } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
   return Infinity;
 }
 
@@ -48,6 +48,8 @@ export class CronScheduler {
     }
     // Validate the schedule before saving
     this.validateSchedule(schedule);
+    // Validate the command before saving
+    this.validateCommand(command);
 
     const job: CronJob = {
       name,
@@ -236,6 +238,64 @@ export class CronScheduler {
     }
   }
 
+  // --- Command validation ---
+
+  /**
+   * Validate a cron command to prevent shell-injection attacks.
+   *
+   * Allowed forms:
+   *   1. "pipeline:<name>"  — internal pipeline reference (no shell involved)
+   *   2. Absolute path commands — e.g. /usr/bin/python3 /path/to/script.py
+   *   3. Named commands from a curated whitelist of allowed executables
+   *
+   * Rejected:
+   *   - Shell metacharacters used for injection: ; | & ` $ ( ) < > \n \r
+   *     unless the command starts with an absolute path (where the OS is the
+   *     gate-keeper) and does NOT contain these characters.
+   *
+   * Note: We intentionally do NOT allow arbitrary shell pipelines.  If a user
+   * needs a pipeline they should wrap it in a dedicated script file and refer
+   * to that file here.
+   */
+  private validateCommand(command: string): void {
+    if (!command || command.trim().length === 0) {
+      throw new Error('Cron command cannot be empty');
+    }
+
+    // Allow internal pipeline references — they never touch the shell
+    if (command.startsWith('pipeline:')) {
+      const pipelineName = command.slice('pipeline:'.length).trim();
+      if (!/^[a-zA-Z0-9_-]+$/.test(pipelineName)) {
+        throw new Error(
+          `Invalid pipeline name "${pipelineName}". Only letters, digits, hyphens and underscores are allowed.`
+        );
+      }
+      return;
+    }
+
+    // Shell metacharacters that enable injection
+    const SHELL_METACHAR = /[;&|`$(){}<>\n\r]/;
+    if (SHELL_METACHAR.test(command)) {
+      throw new Error(
+        'Cron command contains disallowed shell metacharacters (;, |, &, `, $, (, ), {, }, <, >, newline). ' +
+        'Wrap complex commands in a dedicated script file instead.'
+      );
+    }
+
+    // Commands must start with an absolute path or a whitelisted bare name
+    const ALLOWED_BARE = new Set([
+      'node', 'npm', 'npx', 'python', 'python3', 'uv',
+      'bash', 'sh', 'zsh', 'curl', 'wget',
+    ]);
+    const firstToken = command.trim().split(/\s+/)[0];
+    if (!firstToken.startsWith('/') && !ALLOWED_BARE.has(firstToken)) {
+      throw new Error(
+        `Cron command starts with "${firstToken}" which is not an absolute path and not in the allowed command list. ` +
+        `Use an absolute path (e.g., /usr/bin/${firstToken}) or one of: ${[...ALLOWED_BARE].join(', ')}.`
+      );
+    }
+  }
+
   // --- Tick / execution ---
 
   private tick(): void {
@@ -275,7 +335,8 @@ export class CronScheduler {
       }
       writeFileSync(lockFile, new Date().toISOString(), 'utf-8');
       return true;
-    } catch {
+    } catch (err) {
+      console.error('[superclaw]', err instanceof Error ? err.message : err);
       return false;
     }
   }
@@ -287,7 +348,7 @@ export class CronScheduler {
         `${jobName.replace(/[^a-zA-Z0-9_-]/g, '_')}.lock`
       );
       unlinkSync(lockFile);
-    } catch {}
+    } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
   }
 
   private executeJob(job: CronJob): void {
@@ -347,7 +408,7 @@ export class CronScheduler {
       try {
         // Negative PID kills the entire process group
         process.kill(-child.pid!, 'SIGKILL');
-      } catch { /* already dead */ }
+      } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
       this.releaseJobLock(job.name);
       console.error(`[cron] Job "${job.name}" killed — exceeded 5 min timeout (process group ${child.pid})`);
     }, 300_000);
@@ -386,6 +447,32 @@ export class CronScheduler {
     if (!existsSync(this.dataDir)) {
       mkdirSync(this.dataDir, { recursive: true });
     }
+    // Merge with on-disk state to avoid overwriting updates from external editors
+    // or other processes (e.g., MCP tools that add/remove jobs).
+    if (existsSync(this.filePath)) {
+      try {
+        const diskJobs = JSON.parse(readFileSync(this.filePath, 'utf-8')) as CronJob[];
+        // Add any disk-only jobs (added externally) to in-memory list
+        for (const dj of diskJobs) {
+          if (!this.jobs.some((j) => j.name === dj.name)) {
+            this.jobs.push(dj);
+          }
+        }
+        // For jobs we both have, prefer our lastRun/nextRun (we just updated them)
+        // but pick up enabled/schedule/command changes from disk
+        for (const memJob of this.jobs) {
+          const diskJob = diskJobs.find((dj) => dj.name === memJob.name);
+          if (diskJob) {
+            memJob.schedule = diskJob.schedule;
+            memJob.command = diskJob.command;
+            memJob.enabled = diskJob.enabled;
+          }
+        }
+        // Remove jobs deleted from disk
+        const diskNames = new Set(diskJobs.map((j) => j.name));
+        this.jobs = this.jobs.filter((j) => diskNames.has(j.name));
+      } catch (err) { console.error('[superclaw]', err instanceof Error ? err.message : err); }
+    }
     writeFileSync(this.filePath, JSON.stringify(this.jobs, null, 2), 'utf-8');
   }
 
@@ -407,8 +494,8 @@ export class CronScheduler {
         }
         check.setMinutes(check.getMinutes() + 1);
       }
-    } catch {
-      // If schedule is invalid, return undefined
+    } catch (err) {
+      console.error('[superclaw]', err instanceof Error ? err.message : err);
     }
     return undefined;
   }

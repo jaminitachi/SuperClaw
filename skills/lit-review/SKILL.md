@@ -1,14 +1,21 @@
 ---
 name: lit-review
-description: Multi-paper literature review with gap analysis and citation graph
+description: Paper analysis (single or multi) with structured extraction, gap analysis, and citation graph
 allowed-tools: Read, Bash, Grep, Glob, WebFetch, WebSearch
 ---
 
 <Purpose>
-Synthesize knowledge across multiple papers on a research topic. This skill goes beyond individual paper reading to produce a coherent literature review -- comparing methodologies, synthesizing findings, identifying research gaps, building citation graphs, and generating publication-ready related work sections. It orchestrates parallel paper reading, cross-paper analysis, and structured output.
+Unified academic paper skill: handles both single-paper deep analysis and multi-paper literature reviews.
+
+Single-paper mode: Read and extract structured information (methodology, findings, limitations, contributions) from a specific paper. Store as queryable knowledge in memory.
+
+Multi-paper mode: Synthesize knowledge across multiple papers -- comparing methodologies, synthesizing findings, identifying research gaps, building citation graphs, and generating publication-ready related work sections.
 </Purpose>
 
 <Use_When>
+- User says "read this paper", "summarize paper", "review paper", "analyze this research"
+- User provides an arxiv URL, DOI link, or PDF file path
+- User asks "what does this paper say about X?"
 - User says "literature review", "related work", "survey of", "research landscape"
 - User asks "what's known about X?", "compare papers on Y", "what are the approaches to Z?"
 - User needs a related work section for a paper or proposal
@@ -18,11 +25,9 @@ Synthesize knowledge across multiple papers on a research topic. This skill goes
 </Use_When>
 
 <Do_Not_Use_When>
-- Reading a single specific paper -- use `paper-review` instead
 - Quick citation lookup ("who wrote X?") -- use research-assistant agent directly
-- Statistical analysis of data -- use `research-analysis` instead
 - General web research not about academic papers -- use `research` skill instead
-- Tracking experiment results -- use `experiment-log` instead
+- Reading non-academic documents (blog posts, docs) -- use standard Read tool
 </Do_Not_Use_When>
 
 <Why_This_Exists>
@@ -31,15 +36,50 @@ Individual paper reviews miss the forest for the trees. Researchers need to unde
 
 <Execution_Policy>
 - Always define scope boundaries before starting (topic, time range, methodology focus)
-- Search existing memory first to avoid re-reading papers already in the knowledge graph
-- Read new papers in parallel (up to 5 concurrent paper-reader agents)
+- Search existing memory first to avoid re-reading papers already stored
+- Read new papers in parallel (up to 5 concurrent research-reviewer agents)
 - Use opus-tier agent for cross-paper synthesis (requires complex reasoning)
 - Build citation graph incrementally as papers are processed
 - Output must include gap analysis -- what is NOT covered is as important as what is
-- Default model routing: paper-reader at sonnet (parallel), literature-reviewer at opus (synthesis)
+- Default model routing: research-reviewer agent at sonnet (parallel), research-reviewer at opus (synthesis)
 </Execution_Policy>
 
 <Steps>
+## Mode A: Single Paper Analysis
+
+When user provides a specific paper (URL, DOI, PDF, or title):
+
+1. **Identify Source**: Parse the paper reference
+   - Arxiv URL: Extract paper ID, fetch abstract via WebFetch
+   - DOI link: Resolve to full paper via WebFetch
+   - PDF file path: Read directly via Read tool
+   - Paper title: Search via WebSearch to locate the paper
+
+2. **Check Existing**: Search memory for this paper
+   ```
+   sc_memory_search(query="<paper title or ID>", category="paper")
+   ```
+   - If found: Show existing entry, ask if user wants to update or view
+
+3. **Extract Structure**: Extract structured sections:
+   - [PAPER] Title, authors, year, venue, DOI/URL
+   - [ABSTRACT] Core claim in 2-3 sentences
+   - [METHOD] Methodology details -- dataset, approach, baselines, evaluation metrics
+   - [FINDING] Key findings with statistical evidence (exact numbers, p-values, CIs)
+   - [LIMITATION] Stated and unstated limitations, threats to validity
+   - [CONTRIBUTION] Novel contributions claimed by authors
+   - [CITATION_KEY] Papers this work builds on (for graph linking)
+
+4. **Store in Memory**: `sc_memory_store(content="<full extraction>", category="paper", confidence=0.9)`
+
+5. **Connect to Existing Papers**: Query memory for related work and add relations
+
+6. **Report**: One-paragraph overview, key findings table, methodology summary, limitations, connections
+
+## Mode B: Multi-Paper Literature Review
+
+When user requests a review across multiple papers:
+
 1. **Scope Definition**: Define the literature review boundaries
    - Research question: What specific question is being investigated?
    - Topic boundaries: What is in scope vs out of scope?
@@ -50,7 +90,6 @@ Individual paper reviews miss the forest for the trees. Researchers need to unde
 2. **Gather Existing Knowledge**: Search memory for papers already reviewed
    ```
    sc_memory_search(query="<topic keywords>", category="paper")
-   sc_memory_graph_query(query="papers about <topic>")
    ```
    - Collect all previously extracted papers on the topic
    - Note which sub-areas are already covered vs gaps in coverage
@@ -66,16 +105,16 @@ Individual paper reviews miss the forest for the trees. Researchers need to unde
    - Filter by venue quality and citation count when possible
 
 4. **Read Papers in Parallel**: Extract structured info from new papers
-   - Fire up to 5 paper-reader agents simultaneously
+   - Fire up to 5 research-reviewer agents simultaneously
    - Each extracts: [PAPER], [METHOD], [FINDING], [LIMITATION], [CONTRIBUTION]
-   - Store each in knowledge graph via `paper-review` workflow
+   - Store each via `research-reviewer` workflow
    ```
    # Parallel extraction
-   Agent 1: paper-reader(sonnet) -> paper A
-   Agent 2: paper-reader(sonnet) -> paper B
-   Agent 3: paper-reader(sonnet) -> paper C
-   Agent 4: paper-reader(sonnet) -> paper D
-   Agent 5: paper-reader(sonnet) -> paper E
+   Agent 1: research-reviewer(sonnet) -> paper A
+   Agent 2: research-reviewer(sonnet) -> paper B
+   Agent 3: research-reviewer(sonnet) -> paper C
+   Agent 4: research-reviewer(sonnet) -> paper D
+   Agent 5: research-reviewer(sonnet) -> paper E
    ```
 
 5. **Cross-Paper Synthesis**: Analyze across all papers (opus tier)
@@ -94,13 +133,9 @@ Individual paper reviews miss the forest for the trees. Researchers need to unde
    - Conflicting results: Where do papers disagree and why?
    - Open questions: What do authors consistently list as future work?
 
-7. **Build Citation Graph**: Create relationship map in knowledge store
-   ```
-   sc_memory_add_relation(from="paper_A", to="paper_B", type="cites")
-   sc_memory_add_relation(from="paper_C", to="paper_A", type="extends")
-   sc_memory_add_relation(from="paper_D", to="paper_B", type="contradicts")
-   ```
-   - Track: cites, builds_on, extends, contradicts, replicates, same_topic
+7. **Build Citation Map**: Document relationships between papers in memory
+   - Track relationships: cites, builds_on, extends, contradicts, replicates, same_topic
+   - Store as structured entries via sc_memory_store with category "paper"
 
 8. **Generate Output**: Produce structured literature review
    - Executive summary (1 paragraph)
@@ -113,9 +148,6 @@ Individual paper reviews miss the forest for the trees. Researchers need to unde
 
 <Tool_Usage>
 - `sc_memory_search` -- Find existing papers on the topic in memory
-- `sc_memory_graph_query` -- Explore citation relationships and paper clusters
-- `sc_memory_add_entity` -- Create paper and topic entities
-- `sc_memory_add_relation` -- Build citation graph with typed relationships
 - `sc_memory_store` -- Store the literature review itself as a knowledge entry
 - `WebSearch` -- Discover papers not yet in the knowledge base
 - `WebFetch` -- Access paper abstracts and open-access content
@@ -154,12 +186,6 @@ User: "tell me about AI"
 Action: Starting literature review.
 Why bad: Scope is impossibly broad. Should ask user to narrow: "Which aspect of AI? NLP, computer vision, reinforcement learning, generative models? And what time period?"
 </Bad>
-
-<Bad>
-User: "read this paper https://arxiv.org/abs/2301.12345"
-Action: Running lit-review skill.
-Why bad: This is a single paper. Use `paper-review` skill instead.
-</Bad>
 </Examples>
 
 <Escalation_And_Stop_Conditions>
@@ -187,7 +213,7 @@ Why bad: This is a single paper. Use `paper-review` skill instead.
 <Advanced>
 ## Citation Graph Visualization
 
-The citation graph stored in the knowledge graph can be queried for:
+Citation relationships stored in memory can be queried for:
 - **Clusters**: Groups of papers that cite each other heavily (research communities)
 - **Bridges**: Papers that connect different research communities
 - **Seminal papers**: Nodes with high in-degree (many papers cite them)
@@ -195,8 +221,8 @@ The citation graph stored in the knowledge graph can be queried for:
 
 Query examples:
 ```
-sc_memory_graph_query(query="papers cited by more than 3 papers in <topic>")
-sc_memory_graph_query(query="papers that contradict each other on <claim>")
+sc_memory_search(query="papers cited <topic>")
+sc_memory_search(query="contradicts <claim>")
 ```
 
 ## BibTeX Export
@@ -225,7 +251,7 @@ For paper writing, generate a publication-ready related work section:
 When gaps are identified, automatically suggest experiments:
 1. Gap: "No evaluation of method X on dataset Y"
 2. Suggested experiment: parameters from method X paper + dataset Y
-3. Link to `experiment-log` skill for tracking
+3. Link to research-reviewer agent (experiment-track mode) for tracking
 
 ## Review Update Strategy
 

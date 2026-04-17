@@ -3,8 +3,10 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { execSync } from 'child_process';
 
-const CACHE_TTL = 30_000;           // 30s — always retry every 30 seconds
-const CACHE_TTL_STALE = 900_000;    // 15 min — max age for stale lastGood data
+const CACHE_TTL_SUCCESS = 120_000;  // 2 min — don't poll too often on success
+const CACHE_TTL_FAIL_BASE = 60_000; // 1 min base backoff on failure
+const CACHE_TTL_FAIL_MAX = 600_000; // 10 min max backoff
+const CACHE_TTL_STALE = 3_600_000;  // 1 hour — max age for stale lastGood data
 
 let cachedUsage = null;
 let cacheTimestamp = 0;
@@ -14,29 +16,26 @@ let lastGoodData = null;  // stale-while-error: keep last known good usage
 const CACHE_FILE = join(homedir(), '.claude', '.sc', '.usage-cache.json');
 
 export async function getUsage() {
-  // Check in-memory cache (always 30s)
   const now = Date.now();
-  if (cachedUsage && (now - cacheTimestamp) < CACHE_TTL) {
-    return cachedUsage;
-  }
 
-  // Check file cache
+  // Check file cache (file cache is the only real cache — each HUD run is a new process)
   try {
     if (existsSync(CACHE_FILE)) {
       const cached = JSON.parse(readFileSync(CACHE_FILE, 'utf-8'));
-      // Restore last known good data for stale-while-error (survives across process restarts)
+      // Restore last known good data for stale-while-error
       if (cached.lastGood && (now - cached.timestamp) < CACHE_TTL_STALE) {
         lastGoodData = cached.lastGood;
       }
-      if ((now - cached.timestamp) < CACHE_TTL) {
-        cachedUsage = cached.data;
-        cacheTimestamp = cached.timestamp;
-        cacheSuccess = cached.success;
-        // On a cached failure, serve stale data marked as stale
-        if (!cachedUsage && lastGoodData) {
-          return { ...lastGoodData, stale: true };
-        }
-        return cachedUsage;
+      // Determine TTL based on last result — exponential backoff on failures
+      const failCount = cached.failCount || 0;
+      const ttl = cached.success
+        ? CACHE_TTL_SUCCESS
+        : Math.min(CACHE_TTL_FAIL_BASE * Math.pow(2, failCount), CACHE_TTL_FAIL_MAX);
+      if ((now - cached.timestamp) < ttl) {
+        // Cache still valid — return cached data or stale fallback
+        if (cached.data) return cached.data;
+        if (lastGoodData) return { ...lastGoodData, stale: true };
+        return null;
       }
     }
   } catch {}
@@ -196,14 +195,25 @@ function saveCache(data, success) {
   cacheSuccess = success;
   if (data) lastGoodData = data;
 
+  // Read previous failCount for exponential backoff
+  let failCount = 0;
+  if (!success) {
+    try {
+      if (existsSync(CACHE_FILE)) {
+        const prev = JSON.parse(readFileSync(CACHE_FILE, 'utf-8'));
+        failCount = (prev.failCount || 0) + 1;
+      }
+    } catch {}
+  }
+
   try {
     const dir = join(homedir(), '.claude', '.sc');
     mkdirSync(dir, { recursive: true });
-    // Persist lastGood separately so new processes can restore stale data on API errors
     writeFileSync(CACHE_FILE, JSON.stringify({
       data,
       timestamp: cacheTimestamp,
       success,
+      failCount: success ? 0 : failCount,
       lastGood: lastGoodData ?? data,
     }), 'utf-8');
   } catch {}

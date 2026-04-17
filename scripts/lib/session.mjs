@@ -28,8 +28,20 @@ export function agentFailuresPath(sessionId) {
   return join(getSessionDir(sessionId), 'agent-failures.json');
 }
 
-export function subagentTrackingPath(sessionId) {
-  return join(getSessionDir(sessionId), 'subagent-tracking.json');
+export function getSessionAge(startedAt) {
+  if (!startedAt) return '0m';
+  const start = new Date(startedAt).getTime();
+  if (isNaN(start)) return '0m';
+  const elapsed = Date.now() - start;
+  if (elapsed < 0) return '0m';
+
+  const days = Math.floor(elapsed / 86_400_000);
+  const hours = Math.floor((elapsed % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((elapsed % 3_600_000) / 60_000);
+
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
 }
 
 export function cleanupSession(sessionId) {

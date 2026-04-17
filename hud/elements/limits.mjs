@@ -35,6 +35,22 @@ export function renderRateLimits(usage) {
     }
   }
 
+  // Per-model weekly breakdown
+  if (!isStale && (usage.opusWeeklyPercent != null || usage.sonnetWeeklyPercent != null)) {
+    const modelParts = [];
+    if (usage.opusWeeklyPercent != null) {
+      const opColor = healthColor(usage.opusWeeklyPercent, 60, 85);
+      modelParts.push(`Op:${opColor}${usage.opusWeeklyPercent}%${RESET}`);
+    }
+    if (usage.sonnetWeeklyPercent != null) {
+      const snColor = healthColor(usage.sonnetWeeklyPercent, 60, 85);
+      modelParts.push(`Sn:${snColor}${usage.sonnetWeeklyPercent}%${RESET}`);
+    }
+    if (modelParts.length > 0) {
+      parts.push(dim('(') + modelParts.join(dim('/')) + dim(')'));
+    }
+  }
+
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
