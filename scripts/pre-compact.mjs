@@ -3,10 +3,16 @@
  * PreCompact hook — saves current SC state (active pipelines, recent memories)
  * and emits remember-tag formatted context for critical information.
  */
+if (process.env.SUPERCLAW_DAEMON === '1') {
+  console.log(JSON.stringify({ continue: true, suppressOutput: true }));
+  process.exit(0);
+}
 import { readStdin } from './lib/stdin.mjs';
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, appendFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { ulwStatePath, ulwGatesPath, ulwVerifyLogPath } from './lib/ulw-paths.mjs';
+import { loadUnverified } from './lib/ulw-verify-log.mjs';
 
 /**
  * Gather active pipeline state from SC data directory.
@@ -58,11 +64,13 @@ async function getRecentMemoryKeys(dbPath) {
 
 async function main() {
   const input = await readStdin();
+  let data = null;
   try {
-    JSON.parse(input); // validate input is JSON
+    data = JSON.parse(input);
   } catch {
     // non-JSON input is acceptable
   }
+  const sessionId = data?.session_id || data?.sessionId || null;
 
   const dbPath = join(homedir(), 'superclaw', 'data', 'memory.db');
   const configPath = join(homedir(), 'superclaw', 'superclaw.json');
@@ -98,25 +106,46 @@ async function main() {
     // Config read failed — not critical for compaction
   }
 
+  // ULW state preservation — session-scoped only. No sessionId → no ULW context to preserve.
+  if (sessionId) {
+    const ulwPath = ulwStatePath(sessionId);
+    if (ulwPath && existsSync(ulwPath)) {
+      try {
+        const ulwState = JSON.parse(readFileSync(ulwPath, 'utf-8'));
+        rememberParts.push(`ULW mode: ACTIVE since ${ulwState.startedAt}, mode=${ulwState.mode}`);
+
+        const gatesPath = ulwGatesPath(sessionId);
+        if (gatesPath && existsSync(gatesPath)) {
+          const gates = JSON.parse(readFileSync(gatesPath, 'utf-8'));
+          rememberParts.push(`Gates: plan=${gates.planApproved}, tests=${gates.testsExist}, testsRun=${gates.testsRun}`);
+        }
+
+        const unverified = [...loadUnverified(ulwVerifyLogPath(sessionId))];
+        if (unverified.length > 0) {
+          rememberParts.push(`Unverified files (${unverified.length}): ${unverified.slice(0, 5).join(', ')}`);
+        }
+      } catch {}
+    }
+  }
+
   // Emit remember tags for the model to preserve
   if (rememberParts.length > 0) {
     contextLines.push('');
     contextLines.push('<remember>');
     contextLines.push(`SuperClaw state at compaction: ${rememberParts.join('. ')}.`);
     contextLines.push('SC tools: sc_memory_store, sc_memory_search, sc_memory_recall, sc_screenshot, sc_heartbeat.');
-    contextLines.push('Delegation: see DELEGATION.md for agent routing (superclaw:mac-control, superclaw:memory-curator, etc.).');
+    contextLines.push('Delegation: see DELEGATION.md for agent routing (superclaw:mac-control, superclaw:memory-mgr, etc.).');
+    contextLines.push('Fact-Check Rule: When claiming facts about external tools/APIs, (1) read code/--help first, (2) WebFetch official docs, (3) show sources. Never rely on training data alone.');
     contextLines.push('</remember>');
   }
 
   console.log(JSON.stringify({
     continue: true,
-    hookSpecificOutput: {
-      hookEventName: 'PreCompact',
-      additionalContext: contextLines.join('\n'),
-    },
+    systemMessage: contextLines.join('\n'),
   }));
 }
 
-main().catch(() => {
+main().catch((e) => {
+  try { appendFileSync(join(homedir(), 'superclaw', 'data', 'logs', 'hooks.log'), `[${new Date().toISOString()}] [ERROR] [pre-compact] ${e?.message ?? e}\n`); } catch {}
   console.log(JSON.stringify({ continue: true, suppressOutput: true }));
 });
