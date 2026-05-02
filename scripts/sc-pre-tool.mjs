@@ -83,7 +83,12 @@ function saveGates(gates, sessionId) {
 // ---------------------------------------------------------------------------
 function isTestFile(filePath) {
   if (!filePath) return false;
-  return /\.(test|spec)\./i.test(filePath) || /__tests__\//i.test(filePath);
+  return (
+    /\.(test|spec)\./i.test(filePath) ||
+    /__tests__\//i.test(filePath) ||
+    /\/src\/(test|integrationTest|scenarioTest)\//.test(filePath) ||
+    /(Test|Tests|Spec|IT)\.(kt|java|scala|groovy)$/.test(filePath)
+  );
 }
 
 function block(message) {
@@ -194,6 +199,30 @@ async function main() {
     saveGates(gates, sessionId);
     console.log(JSON.stringify({ continue: true }));
     return;
+  }
+
+  // ----- Bash sentinel escape hatch (manual gate flips) -----
+  if (toolName === 'Bash') {
+    const command = typeof input?.tool_input?.command === 'string' ? input.tool_input.command : '';
+    if (command) {
+      const flipped = {};
+      if (command.includes('SUPERCLAW_RED_CONFIRM')) {
+        gates.testsRedConfirmed = true;
+        flipped.testsRedConfirmed = true;
+      }
+      if (command.includes('SUPERCLAW_GREEN_CONFIRM')) {
+        gates.testsGreenConfirmed = true;
+        flipped.testsGreenConfirmed = true;
+      }
+      if (command.includes('SUPERCLAW_PLAN_APPROVE')) {
+        gates.planApproved = true;
+        flipped.planApproved = true;
+      }
+      if (Object.keys(flipped).length > 0) {
+        saveGates(gates, sessionId);
+        trace(sessionId, 'hook:PreToolUse:ESCAPE', flipped);
+      }
+    }
   }
 
   // ----- HARD GATE: Write / Edit -----

@@ -594,7 +594,7 @@ async function main(): Promise<void> {
   try {
     const syncScript = join(SUPERCLAW_ROOT, 'scripts', 'sc-sync-pmset.sh');
     if (existsSync(syncScript)) {
-      spawn('/bin/bash', [syncScript], { detached: true, stdio: 'ignore' }).unref();
+      spawnChild('/bin/bash', [syncScript], { detached: true, stdio: 'ignore' }).unref();
     }
   } catch {}
 

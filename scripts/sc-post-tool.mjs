@@ -15,6 +15,17 @@ import { trace } from './lib/hook-logger.mjs';
 import { ulwStatePath, ulwGatesPath, ulwVerifyLogPath } from './lib/ulw-paths.mjs';
 import { markEdited, markVerified, loadUnverified } from './lib/ulw-verify-log.mjs';
 
+const TEST_RUNNER_RE = /\b(npm\s+test|npm\s+run\s+test|vitest|jest|playwright\s+test|pytest|cargo\s+test|pnpm\s+test|yarn\s+test|bun\s+test|go\s+test|deno\s+test|gradlew\b|gradle\s+\S*test|mvn\s+test)\b/i;
+const TEST_INTERPRETER_RE = /\b(node|bun|deno|python3?|ruby)\b/i;
+const TEST_PATH_RE = /(?:__tests__\/|\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py|rb)\b)/i;
+
+function isTestCommand(cmd) {
+  if (!cmd || typeof cmd !== 'string') return false;
+  if (TEST_RUNNER_RE.test(cmd)) return true;
+  if (TEST_INTERPRETER_RE.test(cmd) && TEST_PATH_RE.test(cmd)) return true;
+  return false;
+}
+
 function updateGates(updates, sessionId) {
   if (!sessionId) return;
   const gatesPath = ulwGatesPath(sessionId);
@@ -208,9 +219,16 @@ async function main() {
 
       if (toolName === 'Bash') {
         const cmd = input?.tool_input?.command || '';
-        if (/\b(npm\s+test|npm\s+run\s+test|vitest|jest|playwright\s+test|pytest|cargo\s+test|pnpm\s+test|yarn\s+test|bun\s+test|go\s+test|deno\s+test)\b/i.test(cmd)) {
-          const testResult = typeof result === 'string' ? result : JSON.stringify(result);
-          const testFailed = /\b(FAIL(?:ED)?|[1-9]\d*\s+failed|exit code [1-9]|Tests?:\s*\d+\s+failed)\b/i.test(testResult) && !/\b0 failed\b/i.test(testResult);
+        if (isTestCommand(cmd)) {
+          const exitCode = input?.tool_response?.exit_code ?? input?.tool_response?.code ?? input?.tool_response?.exitCode;
+          const interrupted = input?.tool_response?.interrupted === true;
+          let testFailed;
+          if (typeof exitCode === 'number') {
+            testFailed = exitCode !== 0 && !interrupted;
+          } else {
+            const testResult = typeof result === 'string' ? result : JSON.stringify(result);
+            testFailed = /\b(FAIL(?:ED)?|[1-9]\d*\s+failed|exit code [1-9]|Tests?:\s*\d+\s+failed)\b/i.test(testResult) && !/\b0 failed\b/i.test(testResult);
+          }
           const gateUpdates = { testsRun: true, testsPassed: !testFailed };
 
           // RED/GREEN tracking for TDD enforcement

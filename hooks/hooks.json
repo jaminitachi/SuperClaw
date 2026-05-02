@@ -9,6 +9,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/sc-keyword-detector.mjs\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/sc-english-coach.mjs\"",
+            "timeout": 5
           }
         ]
       }

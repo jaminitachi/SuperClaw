@@ -149,13 +149,16 @@ def response(flow: http.HTTPFlow) -> None:
                 text_preview = f"[tool_use: {c.get('name', '?')}]"
                 break
 
+        def fmt(v):
+            return f"{v:,}" if isinstance(v, int) else str(v)
+
         ctx.log.info(
             f"\n{'─'*80}\n"
             f"[RES #{num}] ← {flow.response.status_code} | stop: {stop}\n"
-            f"  usage: in={usage.get('input_tokens', '?'):,} "
-            f"out={usage.get('output_tokens', '?'):,} "
-            f"cache_read={usage.get('cache_read_input_tokens', 0):,} "
-            f"cache_create={usage.get('cache_creation_input_tokens', 0):,}\n"
+            f"  usage: in={fmt(usage.get('input_tokens', '?'))} "
+            f"out={fmt(usage.get('output_tokens', '?'))} "
+            f"cache_read={fmt(usage.get('cache_read_input_tokens', 0))} "
+            f"cache_create={fmt(usage.get('cache_creation_input_tokens', 0))}\n"
             f"  content: {content_types}\n"
             f"  preview: {text_preview[:150]}...\n"
             f"  saved: {prefix}_res.json\n"

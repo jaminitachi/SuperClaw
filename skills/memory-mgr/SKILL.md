@@ -63,6 +63,7 @@ continuity. This makes Claude Code's "long-term memory" reliable and queryable.
      - `query`: string -- FTS5 search query (supports AND, OR, NOT, prefix*, "exact phrase")
      - `limit`: number -- max results (default 10)
      - `category`: string -- optional category filter
+     - `previewChars`: number -- preview characters per result (default 200, max 2000); use `sc_memory_recall(id=N)` for full content
    - **Recall**: `sc_memory_recall` with params:
      - `id`: number -- specific memory entry ID
      - `category`: string -- filter by category
@@ -86,7 +87,7 @@ continuity. This makes Claude Code's "long-term memory" reliable and queryable.
 <Tool_Usage>
 **Core Memory (3 tools):**
 - `sc_memory_store` -- Save knowledge; params: `category` (string), `subject` (string), `content` (string), `confidence` (optional number 0-1)
-- `sc_memory_search` -- Full-text search via FTS5; params: `query` (string, supports FTS5 syntax), `limit` (optional number), `category` (optional string)
+- `sc_memory_search` -- Full-text search via FTS5; params: `query` (string, supports FTS5 syntax), `limit` (optional number), `category` (optional string), `previewChars` (optional number, default 200, max 2000)
 - `sc_memory_recall` -- Retrieve by ID or category; params: `id` (optional number), `category` (optional string), `limit` (optional number)
 
 **Statistics (1 tool):**

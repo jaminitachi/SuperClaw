@@ -132,8 +132,9 @@ server.tool(
     query: z.string().describe('Search query (supports FTS5 syntax)'),
     limit: z.number().optional().describe('Max results (default: 10)'),
     category: z.string().optional().describe('Filter by category'),
+    previewChars: z.number().optional().describe('Preview characters per result (default: 200, max: 2000). Use sc_memory_recall(id=N) for full content.'),
   },
-  async ({ query, limit, category }) => {
+  async ({ query, limit, category, previewChars }) => {
     // Auto-quote queries containing hyphens or special FTS5 chars
     // to prevent "no such column" errors (e.g., "qa-test" → "\"qa-test\"")
     let ftsQuery = query;
@@ -158,6 +159,8 @@ server.tool(
     sql += ' ORDER BY rank LIMIT ?';
     params.push(limit ?? 10);
 
+    const previewLimit = Math.max(80, Math.min(2000, Math.floor(previewChars ?? 200)));
+
     const formatKnowledgeRows = (rows: (KnowledgeRow & { rank: number })[]) => {
       // Update access counts
       const updateStmt = db.prepare('UPDATE knowledge SET access_count = access_count + 1 WHERE id = ?');
@@ -166,7 +169,7 @@ server.tool(
       }
 
       if (rows.length === 0) {
-        return { content: [{ type: 'text', text: 'No results found.' }] };
+        return { content: [{ type: 'text' as const, text: 'No results found.' }] };
       }
 
       // Progressive disclosure (inspired by Claude-Mem):
@@ -174,11 +177,11 @@ server.tool(
       // Use sc_memory_recall with specific ID for full content.
       const text = rows.map((r) => {
         const content = String(r.content);
-        const truncated = content.length > 200 ? content.slice(0, 200) + '...[truncated, use sc_memory_recall id=' + r.id + ' for full]' : content;
+        const truncated = content.length > previewLimit ? content.slice(0, previewLimit) + '...[truncated, use sc_memory_recall id=' + r.id + ' for full]' : content;
         return `[#${r.id}] [${r.category}] ${r.subject} (confidence: ${r.confidence}, accessed: ${r.access_count}x)\n${truncated}`;
       }).join('\n\n---\n\n');
 
-      return { content: [{ type: 'text', text: `${rows.length} results found. Showing compact view — use sc_memory_recall(id=N) for full content.\n\n${text}` }] };
+      return { content: [{ type: 'text' as const, text: `${rows.length} results found. Showing compact view (${previewLimit} chars/result) — use sc_memory_recall(id=N) for full content.\n\n${text}` }] };
     };
 
     try {
@@ -195,10 +198,10 @@ server.tool(
           const rows = db.prepare(sql).all(...quotedParams) as (KnowledgeRow & { rank: number })[];
           return formatKnowledgeRows(rows);
         } catch {
-          return { content: [{ type: 'text', text: `Search error: query "${query}" contains FTS5 syntax characters. Try simpler search terms.` }] };
+          return { content: [{ type: 'text' as const, text: `Search error: query "${query}" contains FTS5 syntax characters. Try simpler search terms.` }] };
         }
       }
-      return { content: [{ type: 'text', text: `Search error: ${err.message}` }] };
+      return { content: [{ type: 'text' as const, text: `Search error: ${err.message}` }] };
     }
   }
 );

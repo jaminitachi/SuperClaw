@@ -133,6 +133,76 @@ describe('sc-keyword-detector: telegram keyword', () => {
   });
 });
 
+describe('sc-keyword-detector: socratic learner keyword', () => {
+  it('detects 티키타카 as adversarial socratic learner', () => {
+    const result = runHook('sc-keyword-detector.mjs', { prompt: '티키타카 하자. 이 아이디어 반박해줘' });
+    expect(result.continue).toBe(true);
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx).toContain('superclaw:socratic-learner');
+    expect(ctx).toContain('adversarial');
+    expect(ctx).toContain('MEMORY.md');
+  });
+
+  it('detects ontology and ouroboros keywords', () => {
+    const result = runHook('sc-keyword-detector.mjs', { prompt: 'ontology 관점에서 ouroboros처럼 정반합 해줘' });
+    expect(result.continue).toBe(true);
+    expect(result.hookSpecificOutput?.additionalContext ?? '').toContain('superclaw:socratic-learner');
+  });
+
+  it('strips code blocks before socratic keyword matching', () => {
+    const result = runHook('sc-keyword-detector.mjs', {
+      prompt: '```ts\nconst socratic = true;\n```\n이 변수 설명해줘',
+    });
+    const ctx = result.hookSpecificOutput?.additionalContext;
+    if (ctx !== undefined) {
+      expect(ctx).not.toContain('superclaw:socratic-learner');
+    } else {
+      expect(result.hookSpecificOutput).toBeUndefined();
+    }
+  });
+});
+
+describe('sc-keyword-detector: critic-review keyword', () => {
+  it('detects /critic-review as instructor review skill', () => {
+    const result = runHook('sc-keyword-detector.mjs', { prompt: '/critic-review 방금 작업 복습하자' });
+    expect(result.continue).toBe(true);
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx).toContain('superclaw:critic-review');
+    expect(ctx).toContain('quiz');
+  });
+
+  it('detects Korean review quiz keywords', () => {
+    const result = runHook('sc-keyword-detector.mjs', { prompt: '리뷰 퀴즈로 내가 이해했는지 확인해줘' });
+    expect(result.continue).toBe(true);
+    expect(result.hookSpecificOutput?.additionalContext ?? '').toContain('superclaw:critic-review');
+  });
+});
+
+describe('sc-english-coach', () => {
+  it('injects concise English prompt coaching for Korean prompts', () => {
+    const result = runHook('sc-english-coach.mjs', { prompt: '이 프롬프트를 자연스러운 영어로 바꾸는 연습을 하고 싶어' });
+    expect(result.continue).toBe(true);
+    const ctx = result.hookSpecificOutput?.additionalContext ?? '';
+    expect(ctx).toContain('SUPERCLAW ENGLISH COACH');
+    expect(ctx).toContain('English prompt:');
+    expect(ctx).toContain('Study note:');
+  });
+
+  it('skips English coaching with opt-out marker', () => {
+    const result = runHook('sc-english-coach.mjs', { prompt: '[no-english] 이건 그냥 처리해줘' });
+    expect(result.continue).toBe(true);
+    expect(result.hookSpecificOutput).toBeUndefined();
+  });
+
+  it('skips code-heavy prompts', () => {
+    const result = runHook('sc-english-coach.mjs', {
+      prompt: '```ts\nconst a = 1;\nconst b = 2;\nfunction run() { return a + b; }\nexport { run };\n```\n이 코드 봐줘',
+    });
+    expect(result.continue).toBe(true);
+    expect(result.hookSpecificOutput).toBeUndefined();
+  });
+});
+
 describe('sc-keyword-detector: OMO routing', () => {
   beforeEach(cleanState);
   afterEach(cleanState);
@@ -272,7 +342,7 @@ describe('sc-pre-tool: PLAN GATE when ultrawork active', () => {
   it('allows plan file Write even when plan not approved', () => {
     const result = runHook('sc-pre-tool.mjs', {
       tool_name: 'Write',
-      tool_input: { file_path: '/Users/daehanlim/.claude/plans/my-plan.md' },
+      tool_input: { file_path: `${require('os').homedir()}/.claude/plans/my-plan.md` },
     });
     expect(result.continue).toBe(true);
     expect(result.hookSpecificOutput).toBeUndefined();

@@ -34,7 +34,7 @@ export const WatcherConfigSchema = z.object({
   enabled: z.boolean().default(true),
   idleMinutes: z.number().default(60),
   pollIntervalSeconds: z.number().default(60),
-  maxRetries: z.number().default(3),
+  maxRetries: z.number().default(1),
   batchSize: z.number().default(1),
   extractionTimeoutMs: z.number().default(600_000),
 });

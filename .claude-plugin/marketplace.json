@@ -1,14 +1,14 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "superclaw",
-  "description": "Claude Code AI plugin — 10 team agents, 9 skills, 36 MCP tools, Mac automation, Telegram remote control, persistent memory, 3-tier orchestration",
+  "description": "Claude Code AI plugin — 10 team agents, 11 skills, 36 MCP tools, Mac automation, Telegram remote control, persistent memory, 3-tier orchestration",
   "owner": {
     "name": "jaminitachi"
   },
   "plugins": [
     {
       "name": "superclaw",
-      "description": "Turn your Mac into an AI-controlled workstation. 10 team agents, 36 MCP tools, Telegram remote control, persistent memory, heartbeat monitoring, and TDD-driven team orchestration. One-command setup.",
+      "description": "Turn your Mac into an AI-controlled workstation. 10 team agents, 11 skills, 36 MCP tools, Telegram remote control, persistent memory, heartbeat monitoring, and TDD-driven team orchestration. One-command setup.",
       "version": "4.0.0",
       "author": {
         "name": "jaminitachi"

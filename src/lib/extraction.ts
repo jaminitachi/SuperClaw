@@ -1,12 +1,11 @@
 /**
  * Shared transcript extraction logic.
  *
- * Used by sc-daemon's TranscriptWatcher. Replaces the in-hook path that
- * called `claude -p` (which suffered permission/timeout issues tied to the
- * Claude Code parent lifecycle). Now uses `codex exec` (OAuth, no API key,
- * independent process) with a 10-minute timeout by default.
+ * Used by sc-daemon's TranscriptWatcher. Spawns `claude -p --model haiku`
+ * as an independent subprocess (CLAUDECODE env stripped) with a 10-minute
+ * timeout by default.
  */
-import { readFileSync, existsSync, mkdirSync, symlinkSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { execFile } from 'child_process';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -50,6 +49,16 @@ export function readTranscript(transcriptPath: string): TranscriptParse {
   try {
     const raw = readFileSync(transcriptPath, 'utf-8');
     const lines = raw.split('\n').filter((l) => l.trim());
+
+    // Skip automated SuperClaw agent/cron sessions — not user conversations
+    if (lines[0]) {
+      try {
+        const firstEntry = JSON.parse(lines[0]);
+        if (firstEntry.type === 'queue-operation') {
+          return { transcriptText: '', userCount: 0, assistantCount: 0 };
+        }
+      } catch { /* ignore parse errors */ }
+    }
 
     for (const line of lines) {
       let entry: RawEntry;
@@ -143,7 +152,7 @@ export function parseJsonFromResponse(text: string | null | undefined): Learning
   return null;
 }
 
-// ─── Extraction via codex exec ───────────────────────────────────
+// ─── Extraction via claude haiku ─────────────────────────────────
 
 function buildExtractionPrompt(transcriptText: string): string {
   const truncated =
@@ -188,78 +197,19 @@ export interface ExtractOptions {
 }
 
 /**
- * Extract the "codex" response section from codex exec stdout.
+ * Run `claude -p --model haiku` with the extraction prompt and parse the
+ * JSON response. Returns null on any failure (timeout, non-zero exit, parse
+ * error).
  *
- * codex exec prints: metadata header → echoed prompt → "--------" → "user" →
- * <echoed prompt> → "codex" → <actual response> → "tokens used" → <usage>.
- * We need the text between the last `\ncodex\n` marker and the next
- * `\ntokens used` marker, otherwise a naive JSON scan picks up the
- * {"format":"..."} example embedded in the echoed prompt.
+ * Runs with a clean environment (CLAUDECODE / CMUX_* stripped) so the
+ * subprocess doesn't inherit Claude Code session state from the daemon.
  */
-function extractCodexResponseSection(stdout: string): string {
-  // Find the last occurrence of "\ncodex\n" which precedes the actual response
-  const codexMarkers: number[] = [];
-  let idx = stdout.indexOf('\ncodex\n');
-  while (idx !== -1) {
-    codexMarkers.push(idx);
-    idx = stdout.indexOf('\ncodex\n', idx + 1);
-  }
-  if (codexMarkers.length === 0) return stdout;
-
-  const start = codexMarkers[codexMarkers.length - 1]! + '\ncodex\n'.length;
-  const tokensUsedIdx = stdout.indexOf('\ntokens used', start);
-  const end = tokensUsedIdx === -1 ? stdout.length : tokensUsedIdx;
-  return stdout.slice(start, end).trim();
-}
-
-/**
- * Ensure a dedicated, minimal CODEX_HOME directory exists that contains only
- * a symlink to the user's auth.json. This isolates extraction from the user's
- * config.toml (which loads oh-my-codex MCP servers and sets reasoning
- * defaults that cause multi-minute delays for simple JSON tasks).
- *
- * With an empty CODEX_HOME, codex runs with:
- *   - reasoning effort: none
- *   - No MCP servers loaded
- *   - Default model unless -m overrides
- */
-function ensureExtractionCodexHome(): string {
-  const extractionHome = join(HOME, 'superclaw', 'data', 'codex-extraction-home');
-  const authLink = join(extractionHome, 'auth.json');
-  const realAuth = join(HOME, '.codex', 'auth.json');
-
-  try {
-    if (!existsSync(extractionHome)) {
-      mkdirSync(extractionHome, { recursive: true });
-    }
-    if (!existsSync(authLink) && existsSync(realAuth)) {
-      symlinkSync(realAuth, authLink);
-    }
-  } catch {
-    // Best effort — if anything fails, caller will still try codex and
-    // degrade gracefully via execFile error handling.
-  }
-  return extractionHome;
-}
-
-/**
- * Run codex exec with the extraction prompt and parse the JSON response.
- * Returns null on any failure (timeout, non-zero exit, parse error).
- *
- * Performance strategy:
- *   - CODEX_HOME points to an isolated dir with only auth.json → skips
- *     user's config.toml (which loads 8+ oh-my-codex MCP servers and sets
- *     gpt-5.3-codex with reasoning, adding minutes of overhead per call).
- *   - -m gpt-5.4: fast non-reasoning-heavy model compatible with ChatGPT OAuth.
- *   - -s read-only: safest sandbox mode.
- */
-export function extractLearningsViaCodex(
+export function extractLearningsViaClaude(
   transcriptText: string,
   opts: ExtractOptions = {}
 ): Promise<Learnings | null> {
   const timeoutMs = opts.timeoutMs ?? 600_000;
   const prompt = buildExtractionPrompt(transcriptText);
-  const codexHome = ensureExtractionCodexHome();
 
   return new Promise((resolve) => {
     const cleanEnv: Record<string, string | undefined> = { ...process.env };
@@ -272,7 +222,6 @@ export function extractLearningsViaCodex(
       if (key.startsWith('CMUX_')) delete cleanEnv[key];
     }
     cleanEnv.SUPERCLAW_DAEMON = '1';
-    cleanEnv.CODEX_HOME = codexHome;
 
     const child = execFile(
       'claude',
