@@ -218,6 +218,10 @@ async function main() {
         gates.planApproved = true;
         flipped.planApproved = true;
       }
+      if (command.includes('SUPERCLAW_MINIMAL_CONFIRM')) {
+        gates.minimalismConfirmed = true;
+        flipped.minimalismConfirmed = true;
+      }
       if (Object.keys(flipped).length > 0) {
         saveGates(gates, sessionId);
         trace(sessionId, 'hook:PreToolUse:ESCAPE', flipped);

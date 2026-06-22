@@ -95,6 +95,12 @@ Parse user input for flags:
 2. **GREEN**: 구현 에이전트 dispatch → 최소한의 코드로 테스트 통과
    - Hook이 `testsGreenConfirmed: true` 기록
 3. **REFACTOR**: Architect 에이전트가 리뷰 + 리팩토링 (테스트 유지)
+4. **미니멀리즘 게이트**: Architect 에이전트가 `simplify` 모드로 실행.
+   - impl + test diff 전체에 DELETE-LIST 생성 (reinvented wheels 포함 — 기존 코드/stdlib 교차 검색 필수).
+   - DELETE-LIST에 따른 삭제 적용.
+   - 기존 테스트 재실행 → GREEN 확인 (새 RED→GREEN 사이클 아님. 기존 테스트만 통과 확인).
+   - **Hook 강제**: `tddRequired===true && gates.minimalismConfirmed!==true`이면 Stop hook이 세션 종료를 차단.
+   - 게이트 해제: Bash sentinel `SUPERCLAW_MINIMAL_CONFIRM` 포함 명령 실행 시 `gates.minimalismConfirmed = true`로 플립 (PreToolUse hook이 감지). simplify 패스를 실제로 완료한 후에만 발행할 것.
 
 #### 연구/분석 태스크 (Convergent Review)
 
@@ -163,6 +169,14 @@ Parse user input for flags:
 **검증**: 테스트 통과 수 / 스모크 결과 / verify agent verdict 등 객관적 증거.
 
 **후속작업**: 남은 이슈·권장 follow-up. 없으면 `없음`.
+
+**부채 원장 (Debt Ledger)**:
+- `grep -rnE '(#|//) ?ponytail:'` 로 코드베이스 전체 harvest.
+- 각 항목: `file:line — <ponytail: 내용>` 형식으로 나열.
+- upgrade trigger 없는 항목(해결 조건/시점 미명시)은 `[no-trigger]` 태그.
+- 항목 없으면 `없음`.
+
+**LOC 델타**: 이번 작업의 순 라인 변화 (참고치, 미강제). 예: `+42 / -17 = net +25`.
 ````
 
 > 프리앰블·장식 금지. 섹션 순서 고정 (문제 → 근본 원인 → 수정 → 검증 → 후속작업). 영문 기술용어는 backtick으로.
@@ -176,6 +190,7 @@ Hook의 테스트 감지가 누락·오작동한 경우 PO/사용자가 Bash 명
 | `SUPERCLAW_RED_CONFIRM` | `gates.testsRedConfirmed = true` — RED GATE 해제 |
 | `SUPERCLAW_GREEN_CONFIRM` | `gates.testsGreenConfirmed = true` — GREEN 확정 |
 | `SUPERCLAW_PLAN_APPROVE` | `gates.planApproved = true` — PLAN GATE 해제 |
+| `SUPERCLAW_MINIMAL_CONFIRM` | `gates.minimalismConfirmed = true` — 미니멀리즘 게이트 해제 (simplify 패스 완료 후에만 발행) |
 
 **사용 예**:
 ```bash

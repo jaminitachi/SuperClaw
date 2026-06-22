@@ -186,6 +186,7 @@ async function main() {
               testsRun: false,
               testsRedConfirmed: false,
               testsGreenConfirmed: false,
+              minimalismConfirmed: false,
             };
             // testsPassed 필드는 삭제 (resetGates에 포함 안 함)
             const gatesTmp = gatesPath + '.tmp.' + process.pid;
@@ -208,7 +209,7 @@ async function main() {
             }, null, 2));
 
             // Fresh gates
-            const gatesData = JSON.stringify({"planApproved":false,"tddRequired":false,"testsExist":false,"testsRun":false,"testsRedConfirmed":false,"testsGreenConfirmed":false,"ultraworkActive":true});
+            const gatesData = JSON.stringify({"planApproved":false,"tddRequired":false,"testsExist":false,"testsRun":false,"testsRedConfirmed":false,"testsGreenConfirmed":false,"minimalismConfirmed":false,"ultraworkActive":true});
             const tmpPath = gatesPath + '.tmp.' + process.pid;
             writeFileSync(tmpPath, gatesData);
             renameSync(tmpPath, gatesPath);

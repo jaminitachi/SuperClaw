@@ -15,6 +15,32 @@ description: Shared rules for all SuperClaw v4 team agents
    - BLOCKED — cannot proceed, reason given
    - NEEDS_CONTEXT — missing information, specific question asked
 
+## Minimalism / 미니멀리즘 (ALL agents)
+
+**YAGNI decision ladder** — stop at the first rung that holds:
+1. Does this need to exist? If no, skip it entirely.
+2. Does stdlib do it? Use stdlib.
+3. Is there a native platform feature? Use it.
+4. Is there an already-installed dependency? Use it.
+5. Is it a one-liner? Write the one-liner.
+6. Only then: write the minimum that works.
+
+**Safety floors** — never simplify these away:
+- Trust-boundary input validation
+- Data-loss error handling
+- Security controls
+- Accessibility requirements
+- Hardware calibration logic
+- Anything explicitly requested by the user
+
+Lazy = efficient, not careless.
+
+**`ponytail:` debt-comment convention** — every deliberate shortcut gets an inline comment naming the ceiling AND the upgrade trigger:
+```
+// ponytail: global lock; per-account locks if throughput matters
+```
+A shortcut with no upgrade trigger is a silent-rot risk. Do not merge shortcuts without a `ponytail:` comment.
+
 ## Claude Code Harness Tools (ALL agents MUST use)
 
 You are running inside Claude Code. These built-in tools are available:

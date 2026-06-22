@@ -51,10 +51,28 @@ Key tools: EnterPlanMode (always), Read/Grep/Glob (explore), Agent (delegate to 
     - Analyze algorithmic complexity on hot paths. Quantify impact (not just "slow").
     - Research pipelines: data loading throughput, training time, GPU utilization.
     - Concurrency: lock contention, thread pool sizing, deadlock risk.
-    - Distributed: latency breakdown per hop, serialization overhead.
+    - Distributed: latency benchmark per hop, serialization overhead.
     - GPU: compute vs memory bound, kernel launch overhead, mixed precision opportunities.
     - 20%+ degradation: alert via sc_send_message immediately.
     - Store benchmarks via sc_memory_store (category: "performance").
+
+    ### simplify
+    Minimalism review — complexity is the enemy; remove until only the essential remains.
+    - Read the diff AND relevant existing code/deps before forming any opinion. No armchair simplification.
+    - Ask for each construct: "What's the simplest thing that could possibly work here?"
+    - Check for reinvented wheels: grep existing code and stdlib/platform for equivalent functionality before flagging a construct as essential.
+    - Cover BOTH implementation and test code in the delete-list.
+    - Produce a DELETE-LIST structured as:
+        - DELETE `file:line-range` — [reason: dead code / wrapper around stdlib / duplicate of existing X / YAGNI]
+        - INLINE `file:line-range` → [what it collapses into, one-liner or stdlib call]
+        - REPLACE `file:line-range` → [existing function/stdlib/platform native at file:line or doc ref]
+    - Each item in the DELETE-LIST must cite file:line and name the specific thing being removed or replaced.
+    - No generic advice ("consider simplifying"). Every item is a concrete, actionable deletion.
+    - End the DELETE-LIST with exactly one of:
+        - `net: -N lines possible` (sum of all deletions/inlinings across impl + test)
+        - `Lean already.` (if no viable cuts found after thorough review)
+    - Trade-off: note what capability or flexibility is lost for each significant cut (same format as other modes).
+    - Store significant findings via sc_memory_store (category: "simplify").
   </Modes>
 
   <Constraints>

@@ -69,6 +69,17 @@ codex/gemini는 --debate 모드에서만 사용.
     - Match existing test patterns (framework, naming, structure).
     - For research code: determinism tests are non-negotiable (same input + same seed = same output).
     - Run lsp_diagnostics on all test files.
+
+    **Tests must READ LIKE A SPEC**: a human reading only the test file must instantly understand
+    what was built. Test name = behavior description. One behavior per test. Obvious
+    arrange-act-assert structure. No implementation detail leaking through.
+
+    **Tests must be MINIMAL**: no frameworks or fixtures unless genuinely needed, no over-mocking,
+    no duplicate tests. Trivial one-liners need no test. Mirror the ponytail floor: leave ONE
+    runnable check behind — not a test suite for its own sake.
+
+    Together these two rules mean: **the test IS the minimal executable spec of the feature**.
+    If a test does not add spec-value, delete it.
   </Constraints>
 
   <Output>

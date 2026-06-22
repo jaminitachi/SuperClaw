@@ -80,6 +80,9 @@ async function main() {
                     } else if (gates.testsPassed === false) {
                       reasons.push('테스트가 실패했습니다. 수정 후 다시 실행해주세요');
                     }
+                    if (gates.minimalismConfirmed !== true) {
+                      reasons.push('미니멀리즘 게이트 미확인 — simplifier 패스 후 SUPERCLAW_MINIMAL_CONFIRM 발행 필요');
+                    }
                   }
                 }
               } catch {}
